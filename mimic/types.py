@@ -16,6 +16,12 @@ class ChunkMode(StrEnum):
     PER_FILE = "per-file"
 
 
+class SignalKind(StrEnum):
+    PR = "pr"
+    COMMITS = "commits"
+    ALL = "all"
+
+
 class CommentKind(StrEnum):
     REVIEW_COMMENT = "review_comment"
     REVIEW_BODY = "review_body"
@@ -36,11 +42,20 @@ class ReviewComment(BaseModel):
     url: str
 
 
+class CommitFile(BaseModel):
+    path: str
+    status: str
+    additions: int = 0
+    deletions: int = 0
+    patch: str = ""
+
+
 class CommitSample(BaseModel):
     repo: str
     sha: str
     subject: str
     body: str = ""
+    files: list[CommitFile] = []
     created_at: datetime
     url: str
 

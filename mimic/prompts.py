@@ -45,13 +45,18 @@ def synthesis_user_prompt(
     if commits:
         lines.append(f"## Signal 2: {len(commits)} commits @{user} authored")
         lines.append("")
-        lines.append("Each commit is prefixed with [repo@sha].")
+        lines.append("Each commit shows [repo@sha], the message, files touched, and (for the most recent) a truncated diff.")
         lines.append("")
         for c in commits:
             lines.append(f"[{c.repo}@{c.sha}]")
             lines.append(c.subject)
             if c.body:
                 lines.append(c.body)
+            if c.files:
+                lines.append("files: " + ", ".join(f"{f.status[0].upper()} {f.path}" for f in c.files[:20]))
+                for f in c.files[:5]:
+                    if f.patch:
+                        lines.append(f"```diff\n# {f.path}\n{f.patch}\n```")
             lines.append("")
 
     lines.append("---")

@@ -57,6 +57,9 @@ class GitHubClient:
         path = f"/repos/{repo}/commits?author={user}&per_page={per_page}"
         return self._json_paged(path)[:limit]
 
+    def commit_detail(self, repo: str, sha: str) -> dict:
+        return self._json(["api", f"/repos/{repo}/commits/{sha}"])
+
     def _json(self, args: list[str]) -> dict:
         cmd = [self._gh, *args]
         result = subprocess.run(cmd, capture_output=True, text=True)
@@ -109,6 +112,8 @@ def to_review_comment(
 
 
 def to_commit_sample(raw: dict, repo: str) -> CommitSample:
+    from mimic.types import CommitFile
+
     message = (raw.get("commit") or {}).get("message", "")
     subject, _, body = message.partition("\n\n")
     date_str = ((raw.get("commit") or {}).get("author") or {}).get("date")
@@ -117,11 +122,23 @@ def to_commit_sample(raw: dict, repo: str) -> CommitSample:
         if date_str
         else datetime.now().astimezone()
     )
+    files: list[CommitFile] = []
+    for f in raw.get("files", []) or []:
+        files.append(
+            CommitFile(
+                path=f.get("filename", ""),
+                status=f.get("status", ""),
+                additions=f.get("additions", 0),
+                deletions=f.get("deletions", 0),
+                patch=(f.get("patch") or "")[:2000],
+            )
+        )
     return CommitSample(
         repo=repo,
         sha=raw.get("sha", "")[:12],
         subject=subject.strip(),
         body=body.strip(),
+        files=files,
         created_at=created_at,
         url=raw.get("html_url", ""),
     )

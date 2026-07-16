@@ -6,12 +6,13 @@ import click
 from mimic import __version__
 from mimic.config import Config, load
 from mimic.github import GhError, GhNotInstalled, GitHubClient
+from mimic.prompts import SYNTHESIS_SYSTEM, synthesis_user_prompt
 from mimic.providers import build as build_provider
 from mimic.review import ReviewService, diff_against
 from mimic.scrape import ScrapeService
 from mimic.storage import PersonaStore
 from mimic.synthesis import SynthesisService
-from mimic.types import ChunkMode, ProviderKind
+from mimic.types import ChunkMode, Persona, ProviderKind, SignalKind
 
 
 def _config(provider: str | None, model: str | None) -> Config:
@@ -32,27 +33,66 @@ def main() -> None:
 @main.command()
 @click.argument("user")
 @click.option("--repo", help="Limit to one repo (owner/name). Default: search across all their PRs.")
-@click.option("--limit", default=50, show_default=True, help="Max PRs to scan.")
-@click.option("--since", help="Only include comments since this date (YYYY-MM-DD).")
+@click.option("--limit", default=50, show_default=True, help="Max PRs / commits to scan.")
+@click.option("--since", help="Only include comments/commits since this date (YYYY-MM-DD).")
+@click.option(
+    "--only",
+    type=click.Choice([s.value for s in SignalKind]),
+    default=SignalKind.ALL.value,
+    show_default=True,
+    help="Which signal to scrape.",
+)
+@click.option("--dry-run", is_flag=True, help="Scrape + print synthesis prompt to stdout, don't call any LLM.")
+@click.option("--body-from", "body_from", type=click.Path(dir_okay=False), help="Skip scrape+synth; read persona body from file (- for stdin).")
 @click.option("--provider", type=click.Choice([p.value for p in ProviderKind]))
 @click.option("--model", help="Override provider model (e.g. claude-sonnet-4-6).")
-def learn(user: str, repo: str | None, limit: int, since: str | None, provider: str | None, model: str | None) -> None:
-    """Scrape USER's PR comments and cache a persona doc."""
+def learn(
+    user: str,
+    repo: str | None,
+    limit: int,
+    since: str | None,
+    only: str,
+    dry_run: bool,
+    body_from: str | None,
+    provider: str | None,
+    model: str | None,
+) -> None:
+    """Scrape USER's PR comments + commits and cache a persona doc."""
     cfg = _config(provider, model)
+    since_dt = _parse_date(since) if since else None
+    store = PersonaStore(cfg)
+
+    if body_from:
+        if body_from == "-":
+            body = sys.stdin.read()
+        else:
+            with open(body_from, encoding="utf-8") as f:
+                body = f.read()
+        persona = Persona(
+            user=user,
+            generated_at=datetime.now().astimezone(),
+            comment_count=0,
+            commit_count=0,
+            repos=[],
+            since=since_dt,
+            body=body,
+        )
+        path = store.write(user, persona.render())
+        click.echo(f"wrote {path}")
+        return
+
     try:
         gh = GitHubClient()
     except GhNotInstalled as e:
         _die(str(e))
 
-    since_dt = _parse_date(since) if since else None
-    store = PersonaStore(cfg)
     scraper = ScrapeService(gh)
-    synth = SynthesisService(build_provider(cfg))
+    kind = SignalKind(only)
 
-    click.echo(f"scanning up to {limit} PRs for @{user}...", err=True)
+    click.echo(f"scanning up to {limit} PRs/commits for @{user}...", err=True)
     try:
-        comments = scraper.collect_comments(user, repo, limit, since_dt)
-        commits = scraper.collect_commits(user, repo, limit, since_dt)
+        comments = scraper.collect_comments(user, repo, limit, since_dt) if kind != SignalKind.COMMITS else []
+        commits = scraper.collect_commits(user, repo, limit, since_dt) if kind != SignalKind.PR else []
     except GhError as e:
         _die(str(e))
     if not comments and not commits:
@@ -62,8 +102,19 @@ def learn(user: str, repo: str | None, limit: int, since: str | None, provider: 
         bits.append(f"{len(comments)} comments")
     if commits:
         bits.append(f"{len(commits)} commits")
-    click.echo(f"kept {' + '.join(bits)}. synthesizing...", err=True)
 
+    if dry_run:
+        click.echo(f"scraped {' + '.join(bits)}. printing synthesis prompt.", err=True)
+        click.echo("## Synthesis system prompt")
+        click.echo(SYNTHESIS_SYSTEM)
+        click.echo("## Synthesis user prompt")
+        click.echo(synthesis_user_prompt(user, comments, commits))
+        click.echo("## Next")
+        click.echo(f"Follow the system prompt, generate the persona as markdown, then run:  mimic learn {user} --body-from -")
+        return
+
+    click.echo(f"kept {' + '.join(bits)}. synthesizing...", err=True)
+    synth = SynthesisService(build_provider(cfg))
     persona = synth.build_persona(user, comments, commits, since_dt)
     path = store.write(user, persona.render())
     click.echo(f"wrote {path}")

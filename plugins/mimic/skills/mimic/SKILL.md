@@ -15,8 +15,10 @@ You are helping the user shape a diff to match a specific GitHub user's coding s
 ## What to run
 
 1. Confirm the persona exists: `mimic list`.
-2. If missing, ask the user for a date bound and (optionally) a repo, then:
-   `mimic learn <user> [--repo owner/name] [--since YYYY-MM-DD]`
+2. If missing, learn it in host mode (no API key needed, you are the LLM):
+   1. `mimic learn <user> [--repo owner/name] [--since YYYY-MM-DD] --dry-run`
+   2. Read the printed synthesis prompt, generate the persona as markdown following its rules.
+   3. Save it: `mimic learn <user> --body-from -` (pipe your persona in via heredoc).
 3. Get the checklist against the current branch:
    `mimic review <user> --base <base-branch>`
    (Default base is `main`. If the repo uses `master` or `develop`, pass `--base` explicitly.)

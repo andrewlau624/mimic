@@ -12,6 +12,7 @@ NOISE_PATTERNS = [
 
 MIN_BODY_LEN = 20
 DEFAULT_COMMIT_LIMIT = 30
+DEFAULT_DIFF_ENRICH = 10
 
 
 class ScrapeService:
@@ -61,6 +62,7 @@ class ScrapeService:
         repo: str | None,
         limit: int,
         since: datetime | None,
+        enrich_top: int = DEFAULT_DIFF_ENRICH,
     ) -> list[CommitSample]:
         if not repo:
             return []
@@ -69,6 +71,10 @@ class ScrapeService:
         if since:
             out = [c for c in out if c.created_at >= since]
         out.sort(key=lambda c: c.created_at, reverse=True)
+        for sample in out[:enrich_top]:
+            detail = self._gh.commit_detail(repo, sample.sha)
+            enriched = to_commit_sample(detail, repo)
+            sample.files = enriched.files
         return out
 
 
