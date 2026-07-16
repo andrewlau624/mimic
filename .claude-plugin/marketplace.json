@@ -6,7 +6,10 @@
   "plugins": [
     {
       "name": "mimic",
-      "source": ".",
+      "source": {
+        "source": "github",
+        "repo": "andrewlau624/mimic"
+      },
       "description": "Learn any GitHub user's review style from their PR comments, then check your diff against it before opening the PR.",
       "version": "0.1.0",
       "category": "code-review",
