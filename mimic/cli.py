@@ -51,14 +51,20 @@ def learn(user: str, repo: str | None, limit: int, since: str | None, provider: 
 
     click.echo(f"scanning up to {limit} PRs for @{user}...", err=True)
     try:
-        comments = scraper.collect(user, repo, limit, since_dt)
+        comments = scraper.collect_comments(user, repo, limit, since_dt)
+        commits = scraper.collect_commits(user, repo, limit, since_dt)
     except GhError as e:
         _die(str(e))
-    if not comments:
-        _die(f"found no substantive review comments for @{user}.")
-    click.echo(f"kept {len(comments)} signal-bearing comments. synthesizing...", err=True)
+    if not comments and not commits:
+        _die(f"found no comments or commits for @{user}.")
+    bits = []
+    if comments:
+        bits.append(f"{len(comments)} comments")
+    if commits:
+        bits.append(f"{len(commits)} commits")
+    click.echo(f"kept {' + '.join(bits)}. synthesizing...", err=True)
 
-    persona = synth.build_persona(user, comments, since_dt)
+    persona = synth.build_persona(user, comments, commits, since_dt)
     path = store.write(user, persona.render())
     click.echo(f"wrote {path}")
 

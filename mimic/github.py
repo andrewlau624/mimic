@@ -3,7 +3,7 @@ import shutil
 import subprocess
 from datetime import datetime
 
-from mimic.types import CommentKind, ReviewComment
+from mimic.types import CommentKind, CommitSample, ReviewComment
 
 
 class GhNotInstalled(RuntimeError):
@@ -52,6 +52,11 @@ class GitHubClient:
     def reviews_for_pr(self, repo: str, pr_number: int) -> list[dict]:
         return self._json_paged(f"/repos/{repo}/pulls/{pr_number}/reviews")
 
+    def commits_by_user(self, repo: str, user: str, limit: int) -> list[dict]:
+        per_page = min(limit, 100)
+        path = f"/repos/{repo}/commits?author={user}&per_page={per_page}"
+        return self._json_paged(path)[:limit]
+
     def _json(self, args: list[str]) -> dict:
         cmd = [self._gh, *args]
         result = subprocess.run(cmd, capture_output=True, text=True)
@@ -99,5 +104,24 @@ def to_review_comment(
         created_at=datetime.fromisoformat(raw["created_at"].replace("Z", "+00:00"))
         if raw.get("created_at")
         else datetime.now().astimezone(),
+        url=raw.get("html_url", ""),
+    )
+
+
+def to_commit_sample(raw: dict, repo: str) -> CommitSample:
+    message = (raw.get("commit") or {}).get("message", "")
+    subject, _, body = message.partition("\n\n")
+    date_str = ((raw.get("commit") or {}).get("author") or {}).get("date")
+    created_at = (
+        datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+        if date_str
+        else datetime.now().astimezone()
+    )
+    return CommitSample(
+        repo=repo,
+        sha=raw.get("sha", "")[:12],
+        subject=subject.strip(),
+        body=body.strip(),
+        created_at=created_at,
         url=raw.get("html_url", ""),
     )

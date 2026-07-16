@@ -1,8 +1,8 @@
 import re
 from datetime import datetime
 
-from mimic.github import GitHubClient, to_review_comment
-from mimic.types import CommentKind, ReviewComment
+from mimic.github import GitHubClient, to_commit_sample, to_review_comment
+from mimic.types import CommentKind, CommitSample, ReviewComment
 
 NOISE_PATTERNS = [
     re.compile(r"^\s*(lgtm|ship\s?it|👍|:\+1:|:shipit:)\s*[.!]?\s*$", re.IGNORECASE),
@@ -11,13 +11,14 @@ NOISE_PATTERNS = [
 ]
 
 MIN_BODY_LEN = 20
+DEFAULT_COMMIT_LIMIT = 30
 
 
 class ScrapeService:
     def __init__(self, gh: GitHubClient):
         self._gh = gh
 
-    def collect(
+    def collect_comments(
         self,
         user: str,
         repo: str | None,
@@ -54,6 +55,22 @@ class ScrapeService:
 
         return _filter_signal(comments, since)
 
+    def collect_commits(
+        self,
+        user: str,
+        repo: str | None,
+        limit: int,
+        since: datetime | None,
+    ) -> list[CommitSample]:
+        if not repo:
+            return []
+        raws = self._gh.commits_by_user(repo, user, limit)
+        out = [to_commit_sample(r, repo) for r in raws]
+        if since:
+            out = [c for c in out if c.created_at >= since]
+        out.sort(key=lambda c: c.created_at, reverse=True)
+        return out
+
 
 def _by(raw: dict, user: str) -> bool:
     login = ((raw.get("user") or {}).get("login") or "").lower()
@@ -61,7 +78,6 @@ def _by(raw: dict, user: str) -> bool:
 
 
 def _repo_from_url(url: str) -> str:
-    # e.g. https://api.github.com/repos/octo/hello -> octo/hello
     prefix = "https://api.github.com/repos/"
     return url[len(prefix):] if url.startswith(prefix) else ""
 

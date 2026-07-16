@@ -1,15 +1,15 @@
 ---
 name: mimic
-description: Use before opening a pull request when the user wants to preempt a reviewer's nits, or when they ask to "mimic", "match", or "check against" any GitHub user's style (a teammate, or a maintainer they admire). Requires the `mimic` CLI on PATH (`pip install mimic-cli`). If no persona is cached, run `mimic learn <user>` first; then run `mimic review <user>` against the current diff and surface the checklist to the user.
+description: Use when the user wants their code to match a specific GitHub user's coding style before opening a PR, or when they say "mimic", "match", or "write in the style of" any GitHub username (a teammate, a maintainer they admire, anyone with a public review or commit history). Mimic learns their conventions from their PR review comments (what they flag when reviewing others' code) and their commit history (how they structure and name their own code), then checks the current diff against that combined persona. Requires the `mimic` CLI on PATH (`pip install mimic-cli`). If no persona is cached, run `mimic learn <user>` first; then run `mimic review <user>` against the current diff and surface the checklist to the user.
 ---
 
 # mimic
 
-You are helping the user tighten a diff against a specific reviewer's known nits before they open a PR.
+You are helping the user shape a diff to match a specific GitHub user's coding style before opening a PR. The style comes from two signals: comments that user has left on other people's PRs (what they flag) and code they've written themselves (how they structure things).
 
 ## When to invoke
 
-- User says something like "mimic andrewlau624", "check this against andrew's style", "what would andrew flag".
+- User says something like "mimic andrewlau624", "write this like simonw would", "match sindresorhus's style", "check this against andrew's conventions".
 - Just before running `gh pr create`, if the user has previously used mimic in this repo.
 
 ## What to run
@@ -23,16 +23,16 @@ You are helping the user tighten a diff against a specific reviewer's known nits
 
 ## What to do with the output
 
-- The checklist prints one nit per bullet with `file:line` when available.
-- Walk each nit. For each: read the referenced code, decide whether it's a real fit for this diff, and apply the fix if it is. Skip nits that don't apply — the persona is a hint, not law.
-- Do not silently rewrite the whole diff. The user wants review, not a redo.
+- The checklist prints one bullet per style-mismatch, with `file:line` when available.
+- Walk each bullet. Read the referenced code, decide whether the rule actually applies to this diff, and apply the fix if it does. Skip rules that don't apply — the persona is a guide, not law.
+- Do not silently rewrite the whole diff. The user wants a targeted pass, not a redo.
 
 ## Providers
 
-Default provider is Anthropic (`claude-sonnet-4-6`). Override per-call with `--provider openai|ollama` or globally with `MIMIC_PROVIDER`. The user's chosen provider must have credentials in the environment (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or a running Ollama daemon).
+Default provider is Anthropic (`claude-sonnet-4-6`). Override per-call with `--provider openai|ollama` or globally with `MIMIC_PROVIDER`. The user's chosen provider needs credentials in the environment (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or a running Ollama daemon).
 
 ## Failure modes
 
 - `gh` not installed → tell the user to install it and run `gh auth login`.
-- No comments found → the user might have the wrong login, or the person hasn't reviewed anything public. Confirm the handle.
-- `NO_NITS` output → the diff is clean against that persona. Say so and move on.
+- No signal found → the user might have the wrong login, or the target hasn't reviewed or committed to anything public in the scoped window. Confirm the handle and widen `--since`.
+- `NO_NITS` output → the diff already matches that persona's style. Say so and move on.

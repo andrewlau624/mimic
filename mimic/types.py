@@ -36,19 +36,32 @@ class ReviewComment(BaseModel):
     url: str
 
 
+class CommitSample(BaseModel):
+    repo: str
+    sha: str
+    subject: str
+    body: str = ""
+    created_at: datetime
+    url: str
+
+
 class Persona(BaseModel):
     user: str
     generated_at: datetime
     comment_count: int
+    commit_count: int = 0
     repos: list[str]
     since: datetime | None = None
     body: str
 
     def render(self) -> str:
+        signal_bits = [f"{self.comment_count} comments"]
+        if self.commit_count:
+            signal_bits.append(f"{self.commit_count} commits")
         lines = [
-            f"# reviewer persona: @{self.user}",
+            f"# style persona: @{self.user}",
             "",
-            f"_generated {self.generated_at.strftime('%Y-%m-%d')} from {self.comment_count} comments"
+            f"_generated {self.generated_at.strftime('%Y-%m-%d')} from {' + '.join(signal_bits)}"
             + (f" across {len(self.repos)} repos" if len(self.repos) > 1 else "")
             + (f", since {self.since.strftime('%Y-%m-%d')}" if self.since else "")
             + "_",
