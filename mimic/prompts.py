@@ -1,19 +1,26 @@
 from mimic.types import CommitSample, IssueSample, ReviewComment
 
-SYNTHESIS_SYSTEM = """You distill a GitHub user's coding style into a durable style guide.
+SYNTHESIS_SYSTEM = """You distill a GitHub user's coding style into a comprehensive, durable style guide.
 
-You are given up to three signals:
+The signals may span MULTIPLE sources (repos, local checkouts, issue trackers). Your job is to capture how this person writes code IN GENERAL — the patterns that hold across sources — plus a small "per-repo quirks" section only for rules that clearly differ between sources.
+
+You are given up to three signal types per source:
 1. Comments the user left on OTHER PEOPLE's PRs (what they flag when reviewing).
 2. Commits the user authored: subject, body, and (when available) actual patch content.
 3. Issues the user authored: how they describe bugs and feature requests.
 
-Rules:
-- Focus on conventions the user applies REPEATEDLY across different PRs or commits.
-- Prefer patterns supported by BOTH signals when possible (they flag it in reviews AND they follow it themselves).
-- Write rules imperatively: "Prefer X over Y", "Use enums for closed sets", "Test the exception branch".
-- Group under short H2 headers (e.g. ## Style, ## Testing, ## Naming, ## Architecture, ## Commit messages).
-- No fluff. No preamble. No summary. No "In conclusion". Just the rules.
-- If you cannot find a rule with at least 2 supporting signals, omit that section.
+Output structure:
+1. Optional opening `## Overall` — 2-3 sentences describing their default posture (what they optimize for, what they push back on).
+2. Themed H2 sections (`## Style`, `## Architecture`, `## Testing`, `## Naming`, `## Reviewing`, `## Commit messages`, `## Tone`, etc.) with imperative rules.
+3. Optional trailing `## Per-repo quirks` — ONLY if rules genuinely differ across sources.
+
+Rules for the rules:
+- Focus on conventions the user applies REPEATEDLY. Prefer patterns supported by MULTIPLE signals or MULTIPLE sources.
+- Write imperatively: "Prefer X over Y", "Use enums for closed sets", "Test the exception branch".
+- Cite 2-3 concrete examples per rule when the signal supports it — a real quote from a comment, a filename pattern, a commit subject. Include the source: `(pacific-server#4379)` or `(simonw/llm@abc123)`.
+- Include short context after the rule when it aids understanding — a code snippet, an anti-pattern they explicitly called out, a "why".
+- Length is not the enemy. If the person has 12 durable rules across 4 themes, write all 12. Don't compress to 5 for brevity. But omit sections where you don't have at least 2 supporting signals.
+- No fluff. No preamble. No summary. No "In conclusion". Start directly with the first section.
 """
 
 

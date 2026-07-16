@@ -70,6 +70,30 @@ class IssueSample(BaseModel):
     url: str
 
 
+class SignalsBundle(BaseModel):
+    comments: list[ReviewComment] = Field(default_factory=list)
+    commits: list[CommitSample] = Field(default_factory=list)
+    issues: list[IssueSample] = Field(default_factory=list)
+
+    def total(self) -> int:
+        return len(self.comments) + len(self.commits) + len(self.issues)
+
+    def extend(self, other: "SignalsBundle") -> None:
+        self.comments.extend(other.comments)
+        self.commits.extend(other.commits)
+        self.issues.extend(other.issues)
+
+
+class Source(BaseModel):
+    key: str
+    kind: str
+    scraped_at: datetime
+    since: datetime | None = None
+    comment_count: int
+    commit_count: int
+    issue_count: int
+
+
 class Persona(BaseModel):
     user: str
     generated_at: datetime

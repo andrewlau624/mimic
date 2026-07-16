@@ -13,7 +13,7 @@ from mimic.review import ReviewService, diff_against
 from mimic.scrape import ScrapeService
 from mimic.storage import PersonaStore
 from mimic.synthesis import SynthesisService
-from mimic.types import ChunkMode, Persona, ProviderKind, SignalKind
+from mimic.types import ChunkMode, Persona, ProviderKind, SignalKind, SignalsBundle
 
 
 def _config(provider: str | None, model: str | None) -> Config:
@@ -81,17 +81,19 @@ def learn(
         else:
             with open(body_from, encoding="utf-8") as f:
                 body = f.read()
+        _, sources = store.load_all_sources(user)
+        totals = _totals(sources)
         persona = Persona(
             user=user,
             generated_at=datetime.now().astimezone(),
-            comment_count=0,
-            commit_count=0,
-            issue_count=0,
-            repos=[],
+            comment_count=totals["comments"],
+            commit_count=totals["commits"],
+            issue_count=totals["issues"],
+            repos=sorted({s.key for s in sources}),
             since=since_dt,
             body=body,
         )
-        path = store.write(user, persona.render())
+        path = store.write_persona(user, persona.render())
         click.echo(f"wrote {path}")
         return
 
@@ -115,29 +117,37 @@ def learn(
     except (GhError, LocalGitError) as e:
         _die(str(e))
     if not comments and not commits and not issues:
-        _die(f"found no signals for @{user}.")
-    bits = []
-    if comments:
-        bits.append(f"{len(comments)} comments")
-    if commits:
-        bits.append(f"{len(commits)} commits" + (" (local)" if local_path else ""))
-    if issues:
-        bits.append(f"{len(issues)} issues")
+        _die(f"found no signals for @{user} in this source.")
+
+    source_key = repo or ("local:" + local_path if local_path else "global")
+    source_kind = "local+graphql" if local_path else "graphql"
+    fresh = SignalsBundle(comments=comments, commits=commits, issues=issues)
+    store.save_source(user, source_key, source_kind, since_dt, fresh)
+
+    combined, sources = store.load_all_sources(user)
+    fresh_bits = _bits(len(comments), len(commits), len(issues), local_path)
+    total_bits = _bits(len(combined.comments), len(combined.commits), len(combined.issues), None)
+    click.echo(
+        f"saved source {source_key!r} ({fresh_bits}). "
+        f"combined across {len(sources)} source{'s' if len(sources) != 1 else ''}: {total_bits}.",
+        err=True,
+    )
 
     if dry_run:
-        click.echo(f"scraped {' + '.join(bits)}. printing synthesis prompt.", err=True)
         click.echo("## Synthesis system prompt")
         click.echo(SYNTHESIS_SYSTEM)
         click.echo("## Synthesis user prompt")
-        click.echo(synthesis_user_prompt(user, comments, commits, issues))
+        click.echo(synthesis_user_prompt(user, combined.comments, combined.commits, combined.issues))
         click.echo("## Next")
         click.echo(f"Follow the system prompt, generate the persona as markdown, then run:  mimic learn {user} --body-from -")
         return
 
-    click.echo(f"kept {' + '.join(bits)}. synthesizing...", err=True)
+    click.echo("synthesizing...", err=True)
     synth = SynthesisService(build_provider(cfg))
-    persona = synth.build_persona(user, comments, commits, issues, since_dt)
-    path = store.write(user, persona.render())
+    persona = synth.build_persona(
+        user, combined.comments, combined.commits, combined.issues, since_dt
+    )
+    path = store.write_persona(user, persona.render())
     click.echo(f"wrote {path}")
 
 
@@ -148,7 +158,7 @@ def show(user: str) -> None:
     cfg = load()
     store = PersonaStore(cfg)
     try:
-        click.echo(store.read(user), nl=False)
+        click.echo(store.read_persona(user), nl=False)
     except FileNotFoundError as e:
         _die(str(e))
 
@@ -169,13 +179,41 @@ def list_users() -> None:
 @main.command()
 @click.argument("user")
 def rm(user: str) -> None:
-    """Delete a cached persona."""
+    """Delete a cached persona and all its sources."""
     cfg = load()
     store = PersonaStore(cfg)
-    if store.delete(user):
+    if store.delete_user(user):
         click.echo(f"deleted {user}")
     else:
         _die(f"no persona for @{user}.")
+
+
+@main.command()
+@click.argument("user")
+def sources(user: str) -> None:
+    """List sources cached for USER's persona."""
+    cfg = load()
+    store = PersonaStore(cfg)
+    items = store.list_sources(user)
+    if not items:
+        click.echo(f"no sources for @{user}. run: mimic learn {user} --repo owner/name")
+        return
+    for s in items:
+        bits = _bits(s.comment_count, s.commit_count, s.issue_count, None)
+        click.echo(f"{s.key}  [{s.kind}]  {bits}  ({s.scraped_at.strftime('%Y-%m-%d')})")
+
+
+@main.command(name="forget-source")
+@click.argument("user")
+@click.argument("source_key")
+def forget_source(user: str, source_key: str) -> None:
+    """Delete one source from USER's persona (keeps other sources + persona.md)."""
+    cfg = load()
+    store = PersonaStore(cfg)
+    if store.delete_source(user, source_key):
+        click.echo(f"deleted source {source_key!r} for @{user}. re-run learn to resynthesize.")
+    else:
+        _die(f"no source {source_key!r} for @{user}. try: mimic sources {user}")
 
 
 @main.command()
@@ -203,7 +241,7 @@ def review(
     cfg = _config(provider, model)
     store = PersonaStore(cfg)
     try:
-        persona = store.read(user)
+        persona = store.read_persona(user)
     except FileNotFoundError as e:
         _die(str(e))
 
@@ -221,6 +259,25 @@ def review(
     svc = ReviewService(build_provider(cfg))
     checklist = svc.check(user, persona, diff, mode=ChunkMode(chunk))
     click.echo(checklist.render(), nl=False)
+
+
+def _bits(n_comments: int, n_commits: int, n_issues: int, local_path: str | None) -> str:
+    parts = []
+    if n_comments:
+        parts.append(f"{n_comments} comments")
+    if n_commits:
+        parts.append(f"{n_commits} commits" + (" (local)" if local_path else ""))
+    if n_issues:
+        parts.append(f"{n_issues} issues")
+    return " + ".join(parts) or "no signals"
+
+
+def _totals(sources: list) -> dict[str, int]:
+    return {
+        "comments": sum(s.comment_count for s in sources),
+        "commits": sum(s.commit_count for s in sources),
+        "issues": sum(s.issue_count for s in sources),
+    }
 
 
 def _parse_date(s: str) -> datetime:
