@@ -1,0 +1,16 @@
+{
+  "name": "mimic",
+  "owner": {
+    "name": "Andrew Lau"
+  },
+  "plugins": [
+    {
+      "name": "mimic",
+      "source": ".",
+      "description": "Learn any GitHub user's review style from their PR comments, then check your diff against it before opening the PR.",
+      "version": "0.1.0",
+      "category": "code-review",
+      "tags": ["github", "pr", "review"]
+    }
+  ]
+}

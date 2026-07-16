@@ -1,0 +1,12 @@
+{
+  "name": "mimic",
+  "version": "0.1.0",
+  "description": "Learn any GitHub user's review style from their PR comments, then check your diff against it before opening the PR.",
+  "author": {
+    "name": "Andrew Lau"
+  },
+  "homepage": "https://github.com/andrewlau624/mimic",
+  "repository": "https://github.com/andrewlau624/mimic",
+  "license": "MIT",
+  "keywords": ["code-review", "github", "pr", "style"]
+}
