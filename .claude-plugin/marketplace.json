@@ -8,7 +8,7 @@
       "name": "mimic",
       "source": "./plugins/mimic",
       "description": "Learn any GitHub user's review style from their PR comments, then check your diff against it before opening the PR.",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "category": "code-review",
       "tags": ["github", "pr", "review"]
     }
