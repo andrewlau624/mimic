@@ -83,7 +83,7 @@ def learn(
 
     try:
         gh = GitHubClient()
-    except GhNotInstalled as e:
+    except (GhNotInstalled, GhError) as e:
         _die(str(e))
 
     scraper = ScrapeService(gh)
