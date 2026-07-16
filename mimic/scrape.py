@@ -1,8 +1,9 @@
 import re
 from datetime import datetime
 
-from mimic.github import GitHubClient, to_commit_sample, to_review_comment
-from mimic.types import CommentKind, CommitSample, ReviewComment
+from mimic.github import GitHubClient, to_commit_sample, to_issue_sample, to_review_comment
+from mimic.local_git import LocalGit
+from mimic.types import CommentKind, CommitSample, IssueSample, ReviewComment
 
 NOISE_PATTERNS = [
     re.compile(r"^\s*(lgtm|ship\s?it|👍|:\+1:|:shipit:)\s*[.!]?\s*$", re.IGNORECASE),
@@ -12,6 +13,7 @@ NOISE_PATTERNS = [
 
 MIN_BODY_LEN = 20
 DEFAULT_COMMIT_LIMIT = 30
+DEFAULT_LOCAL_ENRICH = 10
 
 
 class ScrapeService:
@@ -61,7 +63,15 @@ class ScrapeService:
         repo: str | None,
         limit: int,
         since: datetime | None,
+        local_path: str | None = None,
     ) -> list[CommitSample]:
+        if local_path:
+            local = LocalGit(local_path, repo_name=repo or "")
+            out = local.commits_by(user, limit, since)
+            for sample in out[:DEFAULT_LOCAL_ENRICH]:
+                sample.files = local.files_for(sample.sha)
+            return out
+
         if not repo:
             return []
         raws = self._gh.commits_by_user(repo, user, limit)
@@ -69,6 +79,20 @@ class ScrapeService:
         if since:
             out = [c for c in out if c.created_at >= since]
         out.sort(key=lambda c: c.created_at, reverse=True)
+        return out
+
+    def collect_issues(
+        self,
+        user: str,
+        repo: str | None,
+        limit: int,
+        since: datetime | None,
+    ) -> list[IssueSample]:
+        raws = self._gh.issues_authored_by(user, repo, limit)
+        out = [to_issue_sample(r) for r in raws]
+        if since:
+            out = [i for i in out if i.created_at >= since]
+        out.sort(key=lambda i: i.created_at, reverse=True)
         return out
 
 

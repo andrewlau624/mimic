@@ -7,7 +7,7 @@ from functools import cache
 import httpx
 
 from mimic import __version__
-from mimic.types import CommentKind, CommitFile, CommitSample, ReviewComment
+from mimic.types import CommentKind, CommitFile, CommitSample, IssueSample, ReviewComment
 
 GITHUB_GRAPHQL = "https://api.github.com/graphql"
 USER_AGENT = f"mimic/{__version__}"
@@ -125,15 +125,15 @@ class GitHubClient:
         nodes = (target.get("history") or {}).get("nodes", []) or []
         return [_gql_commit(c) for c in nodes[:limit]]
 
-    def commit_detail(self, repo: str, sha: str) -> dict:
-        # GraphQL does not expose per-file patches; return the commit without files.
-        # scrape.py's enrich loop tolerates an empty files list.
-        owner, name = repo.split("/", 1)
-        data = self._query(COMMIT_DETAIL_QUERY, {"owner": owner, "name": name, "oid": sha})
-        node = (data.get("repository") or {}).get("object")
-        if not node:
-            return {"sha": sha, "commit": {"message": "", "author": {"date": None}}, "html_url": "", "files": []}
-        return _gql_commit(node)
+    def issues_authored_by(self, user: str, repo: str | None, limit: int) -> list[dict]:
+        q = f"author:{user} is:issue" + (f" repo:{repo}" if repo else "")
+        data = self._query(FIND_ISSUES_QUERY, {"q": q, "first": min(limit, 100)})
+        out: list[dict] = []
+        for node in data["search"]["nodes"]:
+            if not node:
+                continue
+            out.append(_gql_issue(node))
+        return out[:limit]
 
     def _user_id(self, login: str) -> str:
         if login in self._user_id_cache:
@@ -257,15 +257,17 @@ query($owner: String!, $name: String!, $userId: ID!, $first: Int!) {
 }
 """
 
-COMMIT_DETAIL_QUERY = """
-query($owner: String!, $name: String!, $oid: GitObjectID!) {
-  repository(owner: $owner, name: $name) {
-    object(oid: $oid) {
-      ... on Commit {
-        oid
-        message
-        committedDate
+FIND_ISSUES_QUERY = """
+query($q: String!, $first: Int!) {
+  search(query: $q, type: ISSUE, first: $first) {
+    nodes {
+      ... on Issue {
+        number
+        title
+        body
+        createdAt
         url
+        repository { nameWithOwner }
       }
     }
   }
@@ -319,6 +321,17 @@ def _gql_commit(c: dict) -> dict:
     }
 
 
+def _gql_issue(i: dict) -> dict:
+    return {
+        "number": i.get("number", 0),
+        "title": i.get("title", ""),
+        "body": i.get("body", ""),
+        "created_at": i.get("createdAt"),
+        "html_url": i.get("url", ""),
+        "repo": (i.get("repository") or {}).get("nameWithOwner", ""),
+    }
+
+
 # --- REST-shape parsers used by scrape.py -----------------------------------
 
 
@@ -340,6 +353,17 @@ def to_review_comment(
         path=raw.get("path"),
         line=raw.get("line") or raw.get("original_line"),
         diff_hunk=raw.get("diff_hunk"),
+        created_at=_parse_dt(raw.get("created_at")),
+        url=raw.get("html_url", ""),
+    )
+
+
+def to_issue_sample(raw: dict) -> IssueSample:
+    return IssueSample(
+        repo=raw.get("repo", ""),
+        number=raw.get("number", 0),
+        title=raw.get("title", ""),
+        body=(raw.get("body") or "")[:4000],
         created_at=_parse_dt(raw.get("created_at")),
         url=raw.get("html_url", ""),
     )

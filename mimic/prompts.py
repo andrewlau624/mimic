@@ -1,10 +1,11 @@
-from mimic.types import CommitSample, ReviewComment
+from mimic.types import CommitSample, IssueSample, ReviewComment
 
 SYNTHESIS_SYSTEM = """You distill a GitHub user's coding style into a durable style guide.
 
-You are given two signals:
+You are given up to three signals:
 1. Comments the user left on OTHER PEOPLE's PRs (what they flag when reviewing).
-2. Commit subjects/bodies from the user's OWN commits (how they describe their own work).
+2. Commits the user authored: subject, body, and (when available) actual patch content.
+3. Issues the user authored: how they describe bugs and feature requests.
 
 Rules:
 - Focus on conventions the user applies REPEATEDLY across different PRs or commits.
@@ -20,6 +21,7 @@ def synthesis_user_prompt(
     user: str,
     comments: list[ReviewComment],
     commits: list[CommitSample] = (),
+    issues: list[IssueSample] = (),
 ) -> str:
     lines = [
         f"Distill @{user}'s coding style from the following signals.",
@@ -57,6 +59,17 @@ def synthesis_user_prompt(
                 for f in c.files[:5]:
                     if f.patch:
                         lines.append(f"```diff\n# {f.path}\n{f.patch}\n```")
+            lines.append("")
+
+    if issues:
+        lines.append(f"## Signal 3: {len(issues)} issues @{user} authored")
+        lines.append("")
+        lines.append("Each issue is prefixed with [repo#number] and shows the title + body.")
+        lines.append("")
+        for i in issues:
+            lines.append(f"[{i.repo}#{i.number}] {i.title}")
+            if i.body:
+                lines.append(i.body.strip())
             lines.append("")
 
     lines.append("---")

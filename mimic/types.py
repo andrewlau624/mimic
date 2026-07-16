@@ -19,6 +19,7 @@ class ChunkMode(StrEnum):
 class SignalKind(StrEnum):
     PR = "pr"
     COMMITS = "commits"
+    ISSUES = "issues"
     ALL = "all"
 
 
@@ -60,23 +61,37 @@ class CommitSample(BaseModel):
     url: str
 
 
+class IssueSample(BaseModel):
+    repo: str
+    number: int
+    title: str
+    body: str = ""
+    created_at: datetime
+    url: str
+
+
 class Persona(BaseModel):
     user: str
     generated_at: datetime
     comment_count: int
     commit_count: int = 0
+    issue_count: int = 0
     repos: list[str]
     since: datetime | None = None
     body: str
 
     def render(self) -> str:
-        signal_bits = [f"{self.comment_count} comments"]
+        signal_bits = []
+        if self.comment_count:
+            signal_bits.append(f"{self.comment_count} comments")
         if self.commit_count:
             signal_bits.append(f"{self.commit_count} commits")
+        if self.issue_count:
+            signal_bits.append(f"{self.issue_count} issues")
         lines = [
             f"# style persona: @{self.user}",
             "",
-            f"_generated {self.generated_at.strftime('%Y-%m-%d')} from {' + '.join(signal_bits)}"
+            f"_generated {self.generated_at.strftime('%Y-%m-%d')} from {' + '.join(signal_bits) or 'a hand-edited body'}"
             + (f" across {len(self.repos)} repos" if len(self.repos) > 1 else "")
             + (f", since {self.since.strftime('%Y-%m-%d')}" if self.since else "")
             + "_",
