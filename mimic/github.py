@@ -58,7 +58,6 @@ class GitHubClient:
             },
             timeout=30,
         )
-        self._user_id_cache: dict[str, str] = {}
 
     def find_prs_with_user(self, user: str, repo: str | None, limit: int) -> list[dict]:
         q = f"commenter:{user} is:pr" + (f" repo:{repo}" if repo else "")
@@ -113,17 +112,16 @@ class GitHubClient:
         return [_gql_review(c) for c in nodes]
 
     def commits_by_user(self, repo: str, user: str, limit: int) -> list[dict]:
-        owner, name = repo.split("/", 1)
-        user_id = self._user_id(user)
-        data = self._query(
-            COMMITS_QUERY,
-            {"owner": owner, "name": name, "userId": user_id, "first": min(limit, 100)},
-        )
-        target = (
-            ((data.get("repository") or {}).get("defaultBranchRef") or {}).get("target") or {}
-        )
-        nodes = (target.get("history") or {}).get("nodes", []) or []
-        return [_gql_commit(c) for c in nodes[:limit]]
+        # REST — gives us the list; commit_detail() then gets per-file patches.
+        # GraphQL only exposes commit messages, not diffs.
+        return self._rest_paged(
+            f"/repos/{repo}/commits",
+            params={"author": user, "per_page": min(limit, 100)},
+        )[:limit]
+
+    def commit_detail(self, repo: str, sha: str) -> dict:
+        # REST — includes `files[]` with `patch` content. GraphQL does not.
+        return self._rest_json(f"/repos/{repo}/commits/{sha}")
 
     def issues_authored_by(self, user: str, repo: str | None, limit: int) -> list[dict]:
         q = f"author:{user} is:issue" + (f" repo:{repo}" if repo else "")
@@ -135,16 +133,6 @@ class GitHubClient:
             out.append(_gql_issue(node))
         return out[:limit]
 
-    def _user_id(self, login: str) -> str:
-        if login in self._user_id_cache:
-            return self._user_id_cache[login]
-        data = self._query(USER_ID_QUERY, {"login": login})
-        user = data.get("user")
-        if not user:
-            raise GhError(f"github user @{login} not found.")
-        self._user_id_cache[login] = user["id"]
-        return user["id"]
-
     def _query(self, query: str, variables: dict) -> dict:
         r = self._client.post(GITHUB_GRAPHQL, json={"query": query, "variables": variables})
         if r.status_code >= 400:
@@ -154,6 +142,55 @@ class GitHubClient:
             msgs = "; ".join(e.get("message", "?") for e in body["errors"])
             raise GhError(f"graphql errors: {msgs}")
         return body.get("data") or {}
+
+    def _rest_json(self, path: str, params: dict | None = None) -> dict:
+        r = self._client.get(f"https://api.github.com{path}", params=params or {})
+        _check_rest(r, path)
+        return r.json()
+
+    def _rest_paged(self, path: str, params: dict | None = None) -> list[dict]:
+        items: list[dict] = []
+        url = f"https://api.github.com{path}"
+        query: dict = params or {}
+        for _ in range(20):  # hard cap — prevents runaway loops on broken pagination
+            r = self._client.get(url, params=query)
+            _check_rest(r, url)
+            data = r.json()
+            if isinstance(data, list):
+                items.extend(data)
+            else:
+                items.append(data)
+            nxt = _next_link(r.headers.get("link", ""))
+            if not nxt:
+                break
+            url = nxt
+            query = {}
+        return items
+
+
+def _check_rest(r, path: str) -> None:
+    if r.status_code < 400:
+        return
+    if "text/html" in r.headers.get("content-type", ""):
+        raise GhError(
+            f"github REST {path} returned HTML ({r.status_code}). "
+            f"probably a REST outage — check https://www.githubstatus.com/ and retry."
+        )
+    raise GhError(f"github REST {path} -> {r.status_code}: {r.text[:200]}")
+
+
+def _next_link(link_header: str) -> str | None:
+    if not link_header:
+        return None
+    for part in link_header.split(","):
+        segs = [s.strip() for s in part.split(";")]
+        if len(segs) < 2:
+            continue
+        url_part = segs[0].strip("<>")
+        for s in segs[1:]:
+            if s == 'rel="next"':
+                return url_part
+    return None
 
 
 # --- graphql queries ---------------------------------------------------------
@@ -232,31 +269,6 @@ query($owner: String!, $name: String!, $number: Int!) {
 }
 """
 
-USER_ID_QUERY = """
-query($login: String!) { user(login: $login) { id } }
-"""
-
-COMMITS_QUERY = """
-query($owner: String!, $name: String!, $userId: ID!, $first: Int!) {
-  repository(owner: $owner, name: $name) {
-    defaultBranchRef {
-      target {
-        ... on Commit {
-          history(first: $first, author: {id: $userId}) {
-            nodes {
-              oid
-              message
-              committedDate
-              url
-            }
-          }
-        }
-      }
-    }
-  }
-}
-"""
-
 FIND_ISSUES_QUERY = """
 query($q: String!, $first: Int!) {
   search(query: $q, type: ISSUE, first: $first) {
@@ -306,18 +318,6 @@ def _gql_review(r: dict) -> dict:
         "state": r.get("state", ""),
         "created_at": r.get("createdAt"),
         "html_url": r.get("url", ""),
-    }
-
-
-def _gql_commit(c: dict) -> dict:
-    return {
-        "sha": c.get("oid", ""),
-        "commit": {
-            "message": c.get("message", ""),
-            "author": {"date": c.get("committedDate")},
-        },
-        "html_url": c.get("url", ""),
-        "files": [],
     }
 
 

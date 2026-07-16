@@ -1,7 +1,7 @@
 import re
 from datetime import datetime
 
-from mimic.github import GitHubClient, to_commit_sample, to_issue_sample, to_review_comment
+from mimic.github import GhError, GitHubClient, to_commit_sample, to_issue_sample, to_review_comment
 from mimic.local_git import LocalGit
 from mimic.types import CommentKind, CommitSample, IssueSample, ReviewComment
 
@@ -79,6 +79,15 @@ class ScrapeService:
         if since:
             out = [c for c in out if c.created_at >= since]
         out.sort(key=lambda c: c.created_at, reverse=True)
+        # enrich the top-N with per-file patches (REST commit_detail).
+        # graphql cannot expose diffs, so we go through REST for the code.
+        # per-commit failures are non-fatal — the persona still gets messages.
+        for sample in out[:DEFAULT_LOCAL_ENRICH]:
+            try:
+                detail = self._gh.commit_detail(repo, sample.sha)
+                sample.files = to_commit_sample(detail, repo).files
+            except GhError:
+                continue
         return out
 
     def collect_issues(
