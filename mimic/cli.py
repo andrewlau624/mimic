@@ -11,7 +11,7 @@ from mimic.review import ReviewService, diff_against
 from mimic.scrape import ScrapeService
 from mimic.storage import PersonaStore
 from mimic.synthesis import SynthesisService
-from mimic.types import ProviderKind
+from mimic.types import ChunkMode, ProviderKind
 
 
 def _config(provider: str | None, model: str | None) -> Config:
@@ -104,9 +104,23 @@ def rm(user: str) -> None:
 @click.argument("user")
 @click.option("--base", default="main", show_default=True, help="Base branch for git diff.")
 @click.option("--diff", "diff_path", type=click.Path(dir_okay=False), help="Read diff from file (- for stdin).")
+@click.option(
+    "--chunk",
+    type=click.Choice([m.value for m in ChunkMode]),
+    default=ChunkMode.AUTO.value,
+    show_default=True,
+    help="How to split large diffs. auto = whole under ~30k tokens else per-file.",
+)
 @click.option("--provider", type=click.Choice([p.value for p in ProviderKind]))
 @click.option("--model", help="Override provider model.")
-def review(user: str, base: str, diff_path: str | None, provider: str | None, model: str | None) -> None:
+def review(
+    user: str,
+    base: str,
+    diff_path: str | None,
+    chunk: str,
+    provider: str | None,
+    model: str | None,
+) -> None:
     """Check the current diff against USER's persona and print a nit checklist."""
     cfg = _config(provider, model)
     store = PersonaStore(cfg)
@@ -127,7 +141,7 @@ def review(user: str, base: str, diff_path: str | None, provider: str | None, mo
             _die(str(e))
 
     svc = ReviewService(build_provider(cfg))
-    checklist = svc.check(user, persona, diff)
+    checklist = svc.check(user, persona, diff, mode=ChunkMode(chunk))
     click.echo(checklist.render(), nl=False)
 
 

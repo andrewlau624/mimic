@@ -59,3 +59,35 @@ def review_user_prompt(user: str, persona: str, diff: str) -> str:
         f"# Diff to check\n\n"
         f"```diff\n{diff.strip()}\n```\n"
     )
+
+
+STRUCTURAL_SYSTEM = """You are a pre-review checker looking for STRUCTURAL nits only.
+
+Given a reviewer's persona and a list of files changed (paths + status, no contents), flag anything the reviewer would complain about at the repo-layout level:
+- file naming or directory placement conventions
+- missing companion files (new source without a test, new module without an __init__, new endpoint without types)
+- types placed inline instead of in a types module
+- service classes vs bare functions in the wrong place
+
+Rules:
+- Only concerns backed by a specific rule in the persona.
+- Format each bullet as:  - <concern>  [FILE]
+- If nothing structural, output exactly: NO_NITS
+- No preamble. No summary.
+"""
+
+
+def structural_user_prompt(user: str, persona: str, files: list[tuple[str, str]]) -> str:
+    lines = [
+        f"# Reviewer persona: @{user}",
+        "",
+        persona.strip(),
+        "",
+        "---",
+        "",
+        "# Files changed",
+        "",
+    ]
+    for status, path in files:
+        lines.append(f"{status}  {path}")
+    return "\n".join(lines)

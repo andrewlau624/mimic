@@ -34,7 +34,7 @@ class AnthropicProvider:
         msg = self._client.messages.create(
             model=self.model,
             max_tokens=4096,
-            system=system,
+            system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
             messages=[{"role": "user", "content": user}],
         )
         return "".join(block.text for block in msg.content if getattr(block, "type", "") == "text")

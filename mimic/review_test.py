@@ -1,4 +1,5 @@
-from mimic.review import _parse
+from mimic.review import _dedupe, _parse, split_diff_by_file
+from mimic.types import ChecklistItem
 
 
 def test_no_nits_sentinel_yields_empty():
@@ -29,3 +30,30 @@ def test_multiple_items_render_cleanly():
     assert [i.concern for i in c.items] == ["A", "B", "C"]
     assert c.items[1].suggestion == "do B'"
     assert c.items[2].file is None
+
+
+def test_split_diff_by_file_basic():
+    diff = (
+        "diff --git a/foo.py b/foo.py\n"
+        "--- a/foo.py\n+++ b/foo.py\n@@ -1 +1 @@\n-old\n+new\n"
+        "diff --git a/bar.py b/bar.py\n"
+        "new file mode 100644\n--- /dev/null\n+++ b/bar.py\n@@ +1 @@\n+hello\n"
+    )
+    files = split_diff_by_file(diff)
+    assert [(s, p) for s, p, _ in files] == [("M", "foo.py"), ("A", "bar.py")]
+    assert all(chunk.startswith("diff --git ") for _, _, chunk in files)
+
+
+def test_split_diff_empty():
+    assert split_diff_by_file("") == []
+    assert split_diff_by_file("   \n") == []
+
+
+def test_dedupe_collapses_similar_concerns():
+    items = [
+        ChecklistItem(concern="Missing test for exception branch", file="a.py", line=1),
+        ChecklistItem(concern="Missing test for exception branch", file="b.py", line=2),
+        ChecklistItem(concern="Raw dict crossing queue boundary", file="c.py", line=3),
+    ]
+    out = _dedupe(items)
+    assert [i.file for i in out] == ["a.py", "c.py"]

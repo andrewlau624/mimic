@@ -10,6 +10,12 @@ class ProviderKind(StrEnum):
     OLLAMA = "ollama"
 
 
+class ChunkMode(StrEnum):
+    AUTO = "auto"
+    WHOLE = "whole"
+    PER_FILE = "per-file"
+
+
 class CommentKind(StrEnum):
     REVIEW_COMMENT = "review_comment"
     REVIEW_BODY = "review_body"
