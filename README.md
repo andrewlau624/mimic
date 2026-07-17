@@ -1,8 +1,8 @@
 # Mimic
 
-**Write code the way your reviewers want you to.** Point Mimic at a reviewer on your team. It reads every comment they've left on PRs across one or more repos (and, optionally, commits they've authored — how they write code themselves), distills that into a style persona, then checks your diff against it before you push.
+A pre-push check that reads a code reviewer's PR comments and flags things they'd nit in your diff before you open the PR.
 
-Reviewer-scoped: mimic only works well on people who actively review PRs. That teammate who nitpicks every diff, that maintainer whose taste you want to steal.
+Point it at someone who reviews your PRs across one or more repos. Mimic reads every comment they've left, learns what they always flag, and runs your diff against it. Only useful on people who actively review. If your target rarely comments on PRs, there's nothing to work with.
 
 ## Four verbs
 
