@@ -14,6 +14,7 @@ from mimic.scrape import ScrapeService
 from mimic.storage import PersonaStore
 from mimic.synthesis import SynthesisService
 from mimic.types import ChunkMode, Persona, ProviderKind, SignalKind, SignalsBundle
+from mimic.verbose import render as render_verbose
 
 
 def _config(provider: str | None, model: str | None) -> Config:
@@ -103,6 +104,9 @@ def learn(
             body=body,
         )
         path = store.write_persona(user, persona.render())
+        combined_after, _ = store.load_all_sources(user)
+        if combined_after.comments or combined_after.commits:
+            store.write_verbose(user, render_verbose(user, combined_after.comments, combined_after.commits))
         click.echo(f"wrote {path}")
         return
 
@@ -159,17 +163,23 @@ def learn(
     synth = SynthesisService(build_provider(cfg))
     persona = synth.build_persona(user, combined.comments, combined.commits, since_dt)
     path = store.write_persona(user, persona.render())
+    verbose_path = store.write_verbose(user, render_verbose(user, combined.comments, combined.commits))
     click.echo(f"wrote {path}")
+    click.echo(f"wrote {verbose_path} (every comment, for reference)")
 
 
 @main.command()
 @click.argument("user")
-def show(user: str) -> None:
-    """Print the cached persona for USER."""
+@click.option("--verbose", is_flag=True, help="Show every scraped comment/commit (verbose.md) instead of the synthesized brief.")
+def show(user: str, verbose: bool) -> None:
+    """Print the cached persona for USER (brief by default; --verbose for the full dump)."""
     cfg = load()
     store = PersonaStore(cfg)
     try:
-        click.echo(store.read_persona(user), nl=False)
+        if verbose:
+            click.echo(store.read_verbose(user), nl=False)
+        else:
+            click.echo(store.read_persona(user), nl=False)
     except FileNotFoundError as e:
         _die(str(e))
 

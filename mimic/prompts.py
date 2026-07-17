@@ -6,8 +6,14 @@ The signals span PR review comments (the primary signal — what they flag when 
 
 Output structure:
 1. Optional opening `## Overall` — 2-3 sentences describing their default review posture (what they push back on, what they optimize for).
-2. Themed H2 sections (`## Architecture`, `## Naming`, `## Testing`, `## Style`, `## Reviewing`, `## Commit messages`, `## Tone`, etc.) with imperative rules.
+2. Themed H2 sections describing WHAT they flag (`## Architecture`, `## Naming`, `## Testing`, `## Style`, `## Types`, `## Commit messages`). Do NOT include a `## Tone` section — how they phrase reviews is out of scope; only what they flag matters.
 3. Optional trailing `## Per-repo quirks` — ONLY if rules genuinely differ across sources.
+
+Grouping and deduplication:
+- Many comments say the same thing in different words. GROUP similar comments into one rule.
+- One rule can be backed by 10+ similar comments. Cite 2-3 representative quotes, not all 10.
+- Prefer citing quotes that come from DIFFERENT PRs (shows the pattern isn't tied to one PR's context).
+- If a rule holds across multiple repos, cite one example from each repo when possible.
 
 Rules for the rules:
 - Focus on conventions the reviewer applies REPEATEDLY. Prefer patterns supported by MULTIPLE comments across MULTIPLE PRs.

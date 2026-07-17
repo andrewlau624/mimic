@@ -19,6 +19,9 @@ class PersonaStore:
     def persona_path(self, user: str) -> Path:
         return self.user_dir(user) / "persona.md"
 
+    def verbose_path(self, user: str) -> Path:
+        return self.user_dir(user) / "verbose.md"
+
     def legacy_path(self, user: str) -> Path:
         return self._root / f"{_safe(user)}.md"
 
@@ -46,9 +49,23 @@ class PersonaStore:
         p.write_text(contents, encoding="utf-8")
         return p
 
+    def write_verbose(self, user: str, contents: str) -> Path:
+        p = self.verbose_path(user)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(contents, encoding="utf-8")
+        return p
+
+    def read_verbose(self, user: str) -> str:
+        p = self.verbose_path(user)
+        if not p.exists():
+            raise FileNotFoundError(
+                f"no verbose dump for @{user}. re-run: mimic learn {user} --repo owner/name"
+            )
+        return p.read_text(encoding="utf-8")
+
     def delete_user(self, user: str) -> bool:
         deleted = False
-        for p in [self.persona_path(user), self.legacy_path(user)]:
+        for p in [self.persona_path(user), self.verbose_path(user), self.legacy_path(user)]:
             if p.exists():
                 p.unlink()
                 deleted = True
