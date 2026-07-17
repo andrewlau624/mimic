@@ -33,8 +33,13 @@ def main() -> None:
 
 @main.command()
 @click.argument("user")
-@click.option("--repo", help="Limit to one repo (owner/name). Default: search across all their PRs.")
-@click.option("--limit", default=50, show_default=True, help="Max PRs / commits / issues to scan.")
+@click.option(
+    "--repo",
+    "repos",
+    multiple=True,
+    help="Repo to scrape (owner/name). Pass multiple times for cross-repo: --repo A --repo B.",
+)
+@click.option("--limit", default=200, show_default=True, help="Max PRs to scan per repo.")
 @click.option("--since", help="Only include signals since this date (YYYY-MM-DD).")
 @click.option(
     "--only",
@@ -45,9 +50,10 @@ def main() -> None:
 )
 @click.option(
     "--local",
-    "local_path",
+    "local_paths",
+    multiple=True,
     type=click.Path(exists=True, file_okay=False),
-    help="Path to a local checkout — read commits + real patches from git instead of GraphQL.",
+    help="Path to a local checkout — read commits + real patches from git. One per --repo.",
 )
 @click.option(
     "--author",
@@ -59,18 +65,22 @@ def main() -> None:
 @click.option("--model", help="Override provider model (e.g. claude-sonnet-4-6).")
 def learn(
     user: str,
-    repo: str | None,
+    repos: tuple[str, ...],
     limit: int,
     since: str | None,
     only: str,
-    local_path: str | None,
+    local_paths: tuple[str, ...],
     author: str | None,
     dry_run: bool,
     body_from: str | None,
     provider: str | None,
     model: str | None,
 ) -> None:
-    """Scrape USER's PR comments + commits and cache a persona doc."""
+    """Learn a reviewer's style. Scrapes their PR review comments + commits per repo.
+
+    Pass --repo multiple times for cross-repo reviewers:
+      mimic learn matt-at-pacific --repo acme/api --repo acme/web --repo acme/infra
+    """
     cfg = _config(provider, model)
     since_dt = _parse_date(since) if since else None
     store = PersonaStore(cfg)
@@ -88,7 +98,6 @@ def learn(
             generated_at=datetime.now().astimezone(),
             comment_count=totals["comments"],
             commit_count=totals["commits"],
-            issue_count=totals["issues"],
             repos=sorted({s.key for s in sources}),
             since=since_dt,
             body=body,
@@ -97,6 +106,11 @@ def learn(
         click.echo(f"wrote {path}")
         return
 
+    if not repos:
+        _die("--repo owner/name is required (pass it once per repo). e.g. --repo acme/api --repo acme/web")
+    if local_paths and len(local_paths) != len(repos):
+        _die("each --local must pair with a --repo (same order and count).")
+
     try:
         gh = GitHubClient()
     except (GhNotInstalled, GhError) as e:
@@ -104,31 +118,30 @@ def learn(
 
     scraper = ScrapeService(gh)
     kind = SignalKind(only)
-
-    want_pr = kind in (SignalKind.PR, SignalKind.ALL)
+    want_comments = kind in (SignalKind.COMMENTS, SignalKind.ALL)
     want_commits = kind in (SignalKind.COMMITS, SignalKind.ALL)
-    want_issues = kind in (SignalKind.ISSUES, SignalKind.ALL)
 
-    click.echo(f"scanning up to {limit} signals for @{user}...", err=True)
-    try:
-        comments = scraper.collect_comments(user, repo, limit, since_dt) if want_pr else []
-        commits = scraper.collect_commits(author or user, repo, limit, since_dt, local_path) if want_commits else []
-        issues = scraper.collect_issues(user, repo, limit, since_dt) if want_issues else []
-    except (GhError, LocalGitError) as e:
-        _die(str(e))
-    if not comments and not commits and not issues:
-        _die(f"found no signals for @{user} in this source.")
-
-    source_key = repo or ("local:" + local_path if local_path else "global")
-    source_kind = "local+graphql" if local_path else "graphql"
-    fresh = SignalsBundle(comments=comments, commits=commits, issues=issues)
-    store.save_source(user, source_key, source_kind, since_dt, fresh)
+    for i, repo in enumerate(repos):
+        local_path = local_paths[i] if local_paths else None
+        click.echo(f"scanning {repo} — up to {limit} PRs...", err=True)
+        try:
+            comments = scraper.collect_comments(user, repo, limit, since_dt) if want_comments else []
+            commits = scraper.collect_commits(author or user, repo, limit, since_dt, local_path) if want_commits else []
+        except (GhError, LocalGitError) as e:
+            _die(str(e))
+        if not comments and not commits:
+            click.echo(f"  no signals for @{user} in {repo}.", err=True)
+            continue
+        source_kind = "local+graphql" if local_path else "graphql"
+        fresh = SignalsBundle(comments=comments, commits=commits)
+        store.save_source(user, repo, source_kind, since_dt, fresh)
+        click.echo(f"  saved {_bits(len(comments), len(commits), local_path)}.", err=True)
 
     combined, sources = store.load_all_sources(user)
-    fresh_bits = _bits(len(comments), len(commits), len(issues), local_path)
-    total_bits = _bits(len(combined.comments), len(combined.commits), len(combined.issues), None)
+    if not combined.comments and not combined.commits:
+        _die(f"found no signals for @{user} across any source.")
+    total_bits = _bits(len(combined.comments), len(combined.commits), None)
     click.echo(
-        f"saved source {source_key!r} ({fresh_bits}). "
         f"combined across {len(sources)} source{'s' if len(sources) != 1 else ''}: {total_bits}.",
         err=True,
     )
@@ -137,16 +150,14 @@ def learn(
         click.echo("## Synthesis system prompt")
         click.echo(SYNTHESIS_SYSTEM)
         click.echo("## Synthesis user prompt")
-        click.echo(synthesis_user_prompt(user, combined.comments, combined.commits, combined.issues))
+        click.echo(synthesis_user_prompt(user, combined.comments, combined.commits))
         click.echo("## Next")
         click.echo(f"Follow the system prompt, generate the persona as markdown, then run:  mimic learn {user} --body-from -")
         return
 
     click.echo("synthesizing...", err=True)
     synth = SynthesisService(build_provider(cfg))
-    persona = synth.build_persona(
-        user, combined.comments, combined.commits, combined.issues, since_dt
-    )
+    persona = synth.build_persona(user, combined.comments, combined.commits, since_dt)
     path = store.write_persona(user, persona.render())
     click.echo(f"wrote {path}")
 
@@ -199,7 +210,7 @@ def sources(user: str) -> None:
         click.echo(f"no sources for @{user}. run: mimic learn {user} --repo owner/name")
         return
     for s in items:
-        bits = _bits(s.comment_count, s.commit_count, s.issue_count, None)
+        bits = _bits(s.comment_count, s.commit_count, None)
         click.echo(f"{s.key}  [{s.kind}]  {bits}  ({s.scraped_at.strftime('%Y-%m-%d')})")
 
 
@@ -261,14 +272,12 @@ def review(
     click.echo(checklist.render(), nl=False)
 
 
-def _bits(n_comments: int, n_commits: int, n_issues: int, local_path: str | None) -> str:
+def _bits(n_comments: int, n_commits: int, local_path: str | None) -> str:
     parts = []
     if n_comments:
-        parts.append(f"{n_comments} comments")
+        parts.append(f"{n_comments} review comments")
     if n_commits:
         parts.append(f"{n_commits} commits" + (" (local)" if local_path else ""))
-    if n_issues:
-        parts.append(f"{n_issues} issues")
     return " + ".join(parts) or "no signals"
 
 
@@ -276,7 +285,6 @@ def _totals(sources: list) -> dict[str, int]:
     return {
         "comments": sum(s.comment_count for s in sources),
         "commits": sum(s.commit_count for s in sources),
-        "issues": sum(s.issue_count for s in sources),
     }
 
 

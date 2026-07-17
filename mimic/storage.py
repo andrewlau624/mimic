@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 from mimic.config import Config
-from mimic.types import CommitSample, IssueSample, ReviewComment, SignalsBundle, Source
+from mimic.types import CommitSample, ReviewComment, SignalsBundle, Source
 
 
 class PersonaStore:
@@ -95,7 +95,6 @@ class PersonaStore:
             "since": since.isoformat() if since else None,
             "comments": [c.model_dump(mode="json") for c in bundle.comments],
             "commits": [c.model_dump(mode="json") for c in bundle.commits],
-            "issues": [i.model_dump(mode="json") for i in bundle.issues],
         }
         p.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         self._refresh_meta(user)
@@ -113,8 +112,6 @@ class PersonaStore:
                 combined.comments.append(ReviewComment.model_validate(c))
             for c in data.get("commits", []):
                 combined.commits.append(CommitSample.model_validate(c))
-            for i in data.get("issues", []):
-                combined.issues.append(IssueSample.model_validate(i))
             sources.append(
                 Source(
                     key=data["source_key"],
@@ -123,7 +120,6 @@ class PersonaStore:
                     since=datetime.fromisoformat(data["since"]) if data.get("since") else None,
                     comment_count=len(data.get("comments", [])),
                     commit_count=len(data.get("commits", [])),
-                    issue_count=len(data.get("issues", [])),
                 )
             )
         return combined, sources

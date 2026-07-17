@@ -17,9 +17,8 @@ class ChunkMode(StrEnum):
 
 
 class SignalKind(StrEnum):
-    PR = "pr"
+    COMMENTS = "comments"
     COMMITS = "commits"
-    ISSUES = "issues"
     ALL = "all"
 
 
@@ -61,27 +60,16 @@ class CommitSample(BaseModel):
     url: str
 
 
-class IssueSample(BaseModel):
-    repo: str
-    number: int
-    title: str
-    body: str = ""
-    created_at: datetime
-    url: str
-
-
 class SignalsBundle(BaseModel):
     comments: list[ReviewComment] = Field(default_factory=list)
     commits: list[CommitSample] = Field(default_factory=list)
-    issues: list[IssueSample] = Field(default_factory=list)
 
     def total(self) -> int:
-        return len(self.comments) + len(self.commits) + len(self.issues)
+        return len(self.comments) + len(self.commits)
 
     def extend(self, other: "SignalsBundle") -> None:
         self.comments.extend(other.comments)
         self.commits.extend(other.commits)
-        self.issues.extend(other.issues)
 
 
 class Source(BaseModel):
@@ -91,7 +79,6 @@ class Source(BaseModel):
     since: datetime | None = None
     comment_count: int
     commit_count: int
-    issue_count: int
 
 
 class Persona(BaseModel):
@@ -99,7 +86,6 @@ class Persona(BaseModel):
     generated_at: datetime
     comment_count: int
     commit_count: int = 0
-    issue_count: int = 0
     repos: list[str]
     since: datetime | None = None
     body: str
@@ -107,13 +93,11 @@ class Persona(BaseModel):
     def render(self) -> str:
         signal_bits = []
         if self.comment_count:
-            signal_bits.append(f"{self.comment_count} comments")
+            signal_bits.append(f"{self.comment_count} review comments")
         if self.commit_count:
             signal_bits.append(f"{self.commit_count} commits")
-        if self.issue_count:
-            signal_bits.append(f"{self.issue_count} issues")
         lines = [
-            f"# style persona: @{self.user}",
+            f"# reviewer persona: @{self.user}",
             "",
             f"_generated {self.generated_at.strftime('%Y-%m-%d')} from {' + '.join(signal_bits) or 'a hand-edited body'}"
             + (f" across {len(self.repos)} repos" if len(self.repos) > 1 else "")

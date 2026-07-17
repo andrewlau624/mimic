@@ -1,26 +1,21 @@
-from mimic.types import CommitSample, IssueSample, ReviewComment
+from mimic.types import CommitSample, ReviewComment
 
-SYNTHESIS_SYSTEM = """You distill a GitHub user's coding style into a comprehensive, durable style guide.
+SYNTHESIS_SYSTEM = """You distill a code REVIEWER's style into a durable, cite-heavy style guide.
 
-The signals may span MULTIPLE sources (repos, local checkouts, issue trackers). Your job is to capture how this person writes code IN GENERAL — the patterns that hold across sources — plus a small "per-repo quirks" section only for rules that clearly differ between sources.
-
-You are given up to three signal types per source:
-1. Comments the user left on OTHER PEOPLE's PRs (what they flag when reviewing).
-2. Commits the user authored: subject, body, and (when available) actual patch content.
-3. Issues the user authored: how they describe bugs and feature requests.
+The signals span PR review comments (the primary signal — what they flag when reviewing others' code) and, when available, commits they authored (secondary — how they write their own code). Signals may span MULTIPLE source repos; when they do, prefer patterns that repeat across repos.
 
 Output structure:
-1. Optional opening `## Overall` — 2-3 sentences describing their default posture (what they optimize for, what they push back on).
-2. Themed H2 sections (`## Style`, `## Architecture`, `## Testing`, `## Naming`, `## Reviewing`, `## Commit messages`, `## Tone`, etc.) with imperative rules.
+1. Optional opening `## Overall` — 2-3 sentences describing their default review posture (what they push back on, what they optimize for).
+2. Themed H2 sections (`## Architecture`, `## Naming`, `## Testing`, `## Style`, `## Reviewing`, `## Commit messages`, `## Tone`, etc.) with imperative rules.
 3. Optional trailing `## Per-repo quirks` — ONLY if rules genuinely differ across sources.
 
 Rules for the rules:
-- Focus on conventions the user applies REPEATEDLY. Prefer patterns supported by MULTIPLE signals or MULTIPLE sources.
+- Focus on conventions the reviewer applies REPEATEDLY. Prefer patterns supported by MULTIPLE comments across MULTIPLE PRs.
 - Write imperatively: "Prefer X over Y", "Use enums for closed sets", "Test the exception branch".
-- Cite 2-3 concrete examples per rule when the signal supports it — a real quote from a comment, a filename pattern, a commit subject. Include the source: `(pacific-server#4379)` or `(simonw/llm@abc123)`.
+- Cite 2-3 concrete examples per rule — a real quote from a comment, a filename, a commit subject. Include the source: `(pacific-server#4379)` or `(acme/api@abc123)`.
 - Include short context after the rule when it aids understanding — a code snippet, an anti-pattern they explicitly called out, a "why".
-- Length is not the enemy. If the person has 12 durable rules across 4 themes, write all 12. Don't compress to 5 for brevity. But omit sections where you don't have at least 2 supporting signals.
-- No fluff. No preamble. No summary. No "In conclusion". Start directly with the first section.
+- Length is not the enemy. If the reviewer has 12 durable rules across 4 themes, write all 12. Don't compress. But omit sections with fewer than 2 supporting signals.
+- No fluff. No preamble. No summary. Start directly with the first section.
 """
 
 
@@ -28,15 +23,14 @@ def synthesis_user_prompt(
     user: str,
     comments: list[ReviewComment],
     commits: list[CommitSample] = (),
-    issues: list[IssueSample] = (),
 ) -> str:
     lines = [
-        f"Distill @{user}'s coding style from the following signals.",
+        f"Distill @{user}'s review style from the following signals.",
         "",
     ]
 
     if comments:
-        lines.append(f"## Signal 1: {len(comments)} comments @{user} left on others' PRs")
+        lines.append(f"## Signal 1: {len(comments)} review comments @{user} left on others' PRs")
         lines.append("")
         lines.append("Each comment is prefixed with [repo#pr] and optionally (file:line).")
         lines.append("")
@@ -66,17 +60,6 @@ def synthesis_user_prompt(
                 for f in c.files[:5]:
                     if f.patch:
                         lines.append(f"```diff\n# {f.path}\n{f.patch}\n```")
-            lines.append("")
-
-    if issues:
-        lines.append(f"## Signal 3: {len(issues)} issues @{user} authored")
-        lines.append("")
-        lines.append("Each issue is prefixed with [repo#number] and shows the title + body.")
-        lines.append("")
-        for i in issues:
-            lines.append(f"[{i.repo}#{i.number}] {i.title}")
-            if i.body:
-                lines.append(i.body.strip())
             lines.append("")
 
     lines.append("---")

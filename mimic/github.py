@@ -7,7 +7,7 @@ from functools import cache
 import httpx
 
 from mimic import __version__
-from mimic.types import CommentKind, CommitFile, CommitSample, IssueSample, ReviewComment
+from mimic.types import CommentKind, CommitFile, CommitSample, ReviewComment
 
 GITHUB_GRAPHQL = "https://api.github.com/graphql"
 USER_AGENT = f"mimic/{__version__}"
@@ -59,21 +59,47 @@ class GitHubClient:
             timeout=30,
         )
 
-    def find_prs_with_user(self, user: str, repo: str | None, limit: int) -> list[dict]:
-        q = f"commenter:{user} is:pr" + (f" repo:{repo}" if repo else "")
-        data = self._query(FIND_PRS_QUERY, {"q": q, "first": min(limit, 100)})
-        out: list[dict] = []
-        for node in data["search"]["nodes"]:
-            if not node:
-                continue
-            out.append(
-                {
-                    "repository_url": f"https://api.github.com/repos/{node['repository']['nameWithOwner']}",
-                    "number": node["number"],
-                    "title": node["title"],
-                }
+    def list_prs_in_repo(
+        self,
+        repo: str,
+        limit: int,
+        since: datetime | None,
+    ) -> list[dict]:
+        """List up to `limit` PRs in the repo, most-recently-updated first.
+
+        Guarantees per-repo coverage — unlike the old `search:commenter:USER`
+        path which capped and often missed prolific reviewers.
+        """
+        owner, name = repo.split("/", 1)
+        prs: list[dict] = []
+        cursor: str | None = None
+        while len(prs) < limit:
+            data = self._query(
+                LIST_PRS_QUERY,
+                {"owner": owner, "name": name, "first": min(100, limit - len(prs)), "after": cursor},
             )
-        return out[:limit]
+            connection = ((data.get("repository") or {}).get("pullRequests") or {})
+            nodes = connection.get("nodes") or []
+            for node in nodes:
+                if not node:
+                    continue
+                updated = _parse_maybe(node.get("updatedAt"))
+                if since and updated and updated < since:
+                    return prs  # nodes are updated-desc; once we cross the bound we're done
+                prs.append(
+                    {
+                        "repository_url": f"https://api.github.com/repos/{repo}",
+                        "number": node["number"],
+                        "title": node["title"],
+                    }
+                )
+                if len(prs) >= limit:
+                    break
+            page = connection.get("pageInfo") or {}
+            if not page.get("hasNextPage"):
+                break
+            cursor = page.get("endCursor")
+        return prs
 
     def review_comments_for_pr(self, repo: str, pr_number: int) -> list[dict]:
         owner, name = repo.split("/", 1)
@@ -122,16 +148,6 @@ class GitHubClient:
     def commit_detail(self, repo: str, sha: str) -> dict:
         # REST — includes `files[]` with `patch` content. GraphQL does not.
         return self._rest_json(f"/repos/{repo}/commits/{sha}")
-
-    def issues_authored_by(self, user: str, repo: str | None, limit: int) -> list[dict]:
-        q = f"author:{user} is:issue" + (f" repo:{repo}" if repo else "")
-        data = self._query(FIND_ISSUES_QUERY, {"q": q, "first": min(limit, 100)})
-        out: list[dict] = []
-        for node in data["search"]["nodes"]:
-            if not node:
-                continue
-            out.append(_gql_issue(node))
-        return out[:limit]
 
     def _query(self, query: str, variables: dict) -> dict:
         r = self._client.post(GITHUB_GRAPHQL, json={"query": query, "variables": variables})
@@ -195,15 +211,12 @@ def _next_link(link_header: str) -> str | None:
 
 # --- graphql queries ---------------------------------------------------------
 
-FIND_PRS_QUERY = """
-query($q: String!, $first: Int!) {
-  search(query: $q, type: ISSUE, first: $first) {
-    nodes {
-      ... on PullRequest {
-        number
-        title
-        repository { nameWithOwner }
-      }
+LIST_PRS_QUERY = """
+query($owner: String!, $name: String!, $first: Int!, $after: String) {
+  repository(owner: $owner, name: $name) {
+    pullRequests(first: $first, after: $after, orderBy: {field: UPDATED_AT, direction: DESC}) {
+      pageInfo { hasNextPage endCursor }
+      nodes { number title updatedAt }
     }
   }
 }
@@ -269,22 +282,11 @@ query($owner: String!, $name: String!, $number: Int!) {
 }
 """
 
-FIND_ISSUES_QUERY = """
-query($q: String!, $first: Int!) {
-  search(query: $q, type: ISSUE, first: $first) {
-    nodes {
-      ... on Issue {
-        number
-        title
-        body
-        createdAt
-        url
-        repository { nameWithOwner }
-      }
-    }
-  }
-}
-"""
+def _parse_maybe(s: str | None) -> datetime | None:
+    if not s:
+        return None
+    return datetime.fromisoformat(s.replace("Z", "+00:00"))
+
 
 
 # --- shape adapters (graphql -> the REST-like dicts our helpers expect) ------
@@ -321,17 +323,6 @@ def _gql_review(r: dict) -> dict:
     }
 
 
-def _gql_issue(i: dict) -> dict:
-    return {
-        "number": i.get("number", 0),
-        "title": i.get("title", ""),
-        "body": i.get("body", ""),
-        "created_at": i.get("createdAt"),
-        "html_url": i.get("url", ""),
-        "repo": (i.get("repository") or {}).get("nameWithOwner", ""),
-    }
-
-
 # --- REST-shape parsers used by scrape.py -----------------------------------
 
 
@@ -353,17 +344,6 @@ def to_review_comment(
         path=raw.get("path"),
         line=raw.get("line") or raw.get("original_line"),
         diff_hunk=raw.get("diff_hunk"),
-        created_at=_parse_dt(raw.get("created_at")),
-        url=raw.get("html_url", ""),
-    )
-
-
-def to_issue_sample(raw: dict) -> IssueSample:
-    return IssueSample(
-        repo=raw.get("repo", ""),
-        number=raw.get("number", 0),
-        title=raw.get("title", ""),
-        body=(raw.get("body") or "")[:4000],
         created_at=_parse_dt(raw.get("created_at")),
         url=raw.get("html_url", ""),
     )

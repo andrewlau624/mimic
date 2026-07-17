@@ -1,22 +1,25 @@
 ---
 name: mimic
-description: Use when the user wants their code to match a specific GitHub user's coding style before opening a PR, or when they say "mimic", "match", or "write in the style of" any GitHub username (a teammate, a maintainer they admire, anyone with a public review or commit history). Mimic learns their conventions from their PR review comments (what they flag when reviewing others' code) and their commit history (how they structure and name their own code), then checks the current diff against that combined persona. Requires the `mimic` CLI on PATH (`pip install mimic-cli`). If no persona is cached, run `mimic learn <user>` first; then run `mimic review <user>` against the current diff and surface the checklist to the user.
+description: Use before opening a pull request when the user wants to preempt a specific REVIEWER's nits — a teammate who reviews their PRs. Mimic learns the reviewer's style from every comment they've left on PRs across one or more repos, plus commits they've authored (how they write code themselves), then checks the current diff against that persona. Not for arbitrary GitHub users — the signal is specifically PR review comments, so it only works well for people who actively review code. Requires the `mimic` CLI on PATH (`pip install mimic-cli`). If no persona is cached, run `mimic learn <user> --repo owner/name` first (pass --repo multiple times for cross-repo reviewers); then run `mimic review <user>` against the current diff and surface the checklist to the user.
 ---
 
 # mimic
 
-You are helping the user shape a diff to match a specific GitHub user's coding style before opening a PR. The style comes from two signals: comments that user has left on other people's PRs (what they flag) and code they've written themselves (how they structure things).
+You are helping the user shape a diff to preempt a code reviewer's nits before opening a PR. The signal is PR review comments the reviewer has left on other people's code, optionally supplemented by their own commits (how they write code themselves).
 
 ## When to invoke
 
-- User says something like "mimic andrewlau624", "write this like simonw would", "match sindresorhus's style", "check this against andrew's conventions".
+- User says something like "mimic mattpocock", "check this against @matt-at-pacific", "would jonathan flag this", "preempt jonhilgart22".
 - Just before running `gh pr create`, if the user has previously used mimic in this repo.
 
 ## What to run
 
 1. Confirm the persona exists: `mimic list`.
 2. If missing, learn it in host mode (no API key needed, you are the LLM):
-   1. `mimic learn <user> [--repo owner/name] [--since YYYY-MM-DD] --dry-run`
+   1. `mimic learn <user> --repo owner/name [--repo owner/name2 ...] [--since YYYY-MM-DD] --dry-run`
+      - Pass `--repo` multiple times if the reviewer works across several repos in the org — cross-repo signals reinforce shared conventions.
+      - `--limit N` caps PRs scanned per repo (default 200 — bump higher for prolific reviewers).
+      - `--local /path/to/repo` (once per `--repo`, same order) pulls commit patches from a local checkout.
    2. Read the printed synthesis prompt, generate the persona as markdown following its rules.
    3. Save it: `mimic learn <user> --body-from -` (pipe your persona in via heredoc).
 3. Get the checklist against the current branch:
@@ -29,6 +32,10 @@ You are helping the user shape a diff to match a specific GitHub user's coding s
 - Walk each bullet. Read the referenced code, decide whether the rule actually applies to this diff, and apply the fix if it does. Skip rules that don't apply — the persona is a guide, not law.
 - Do not silently rewrite the whole diff. The user wants a targeted pass, not a redo.
 
+## Scope note
+
+Mimic is REVIEWER-scoped: it learns from what someone flags when reviewing others' code. It does NOT try to be a general "how this person writes" tool. If the target has no public PR review activity, mimic has nothing to learn from. Pick someone who reviews.
+
 ## Providers
 
 Default provider is Anthropic (`claude-sonnet-4-6`). Override per-call with `--provider openai|ollama` or globally with `MIMIC_PROVIDER`. The user's chosen provider needs credentials in the environment (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or a running Ollama daemon).
@@ -36,5 +43,6 @@ Default provider is Anthropic (`claude-sonnet-4-6`). Override per-call with `--p
 ## Failure modes
 
 - `gh` not installed → tell the user to install it and run `gh auth login`.
-- No signal found → the user might have the wrong login, or the target hasn't reviewed or committed to anything public in the scoped window. Confirm the handle and widen `--since`.
+- `--repo` missing → mimic errors: "--repo owner/name is required".
+- No signals found → the reviewer might have no comments in the repo/window. Widen `--since` or add another `--repo`.
 - `NO_NITS` output → the diff already matches that persona's style. Say so and move on.
