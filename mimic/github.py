@@ -109,8 +109,11 @@ class GitHubClient:
         threads = (data.get("repository") or {}).get("pullRequest", {}).get("reviewThreads", {})
         out: list[dict] = []
         for thread in threads.get("nodes", []) or []:
+            resolved = bool(thread.get("isResolved"))
             for c in (thread.get("comments") or {}).get("nodes", []) or []:
-                out.append(_gql_review_comment(c))
+                adapted = _gql_review_comment(c)
+                adapted["is_resolved"] = resolved
+                out.append(adapted)
         return out
 
     def issue_comments_for_pr(self, repo: str, pr_number: int) -> list[dict]:
@@ -228,6 +231,7 @@ query($owner: String!, $name: String!, $number: Int!) {
     pullRequest(number: $number) {
       reviewThreads(first: 50) {
         nodes {
+          isResolved
           comments(first: 20) {
             nodes {
               author { login }
@@ -346,6 +350,7 @@ def to_review_comment(
         diff_hunk=raw.get("diff_hunk"),
         created_at=_parse_dt(raw.get("created_at")),
         url=raw.get("html_url", ""),
+        is_resolved=bool(raw.get("is_resolved", False)),
     )
 
 

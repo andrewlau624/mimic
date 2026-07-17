@@ -40,6 +40,7 @@ class ReviewComment(BaseModel):
     diff_hunk: str | None = None
     created_at: datetime
     url: str
+    is_resolved: bool = False
 
 
 class CommitFile(BaseModel):

@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 from mimic.types import CommitSample, ReviewComment
 
 SYNTHESIS_SYSTEM = """You distill a code REVIEWER's style into a durable, cite-heavy style guide.
@@ -9,20 +11,39 @@ Output structure:
 2. Themed H2 sections describing WHAT they flag (`## Architecture`, `## Naming`, `## Testing`, `## Style`, `## Types`, `## Commit messages`). Do NOT include a `## Tone` section — how they phrase reviews is out of scope; only what they flag matters.
 3. Optional trailing `## Per-repo quirks` — ONLY if rules genuinely differ across sources.
 
+Weight signal strength (each comment is tagged in brackets):
+- `[resolved]` — the review thread was resolved. The author accepted the nit and shipped it. STRONGER signal than unresolved.
+- `[recent]` — comment is less than 90 days old. Reflects current priorities. Weight higher.
+- `[older]` — comment is more than 2 years old. May reflect outdated positions. Include only if reinforced by recent signals.
+
 Grouping and deduplication:
 - Many comments say the same thing in different words. GROUP similar comments into one rule.
 - One rule can be backed by 10+ similar comments. Cite 2-3 representative quotes, not all 10.
+- REQUIRE at least 2 supporting comments from DIFFERENT PRs. Two comments on the same PR count as ONE signal — a rant on a single PR is not a durable pattern.
 - Prefer citing quotes that come from DIFFERENT PRs (shows the pattern isn't tied to one PR's context).
 - If a rule holds across multiple repos, cite one example from each repo when possible.
 
 Rules for the rules:
-- Focus on conventions the reviewer applies REPEATEDLY. Prefer patterns supported by MULTIPLE comments across MULTIPLE PRs.
+- Focus on conventions the reviewer applies REPEATEDLY. Prefer patterns supported by MULTIPLE comments across MULTIPLE PRs, weighted by `[resolved]` and `[recent]` tags.
 - Write imperatively: "Prefer X over Y", "Use enums for closed sets", "Test the exception branch".
 - Cite 2-3 concrete examples per rule — a real quote from a comment, a filename, a commit subject. Include the source: `(pacific-server#4379)` or `(acme/api@abc123)`.
 - Include short context after the rule when it aids understanding — a code snippet, an anti-pattern they explicitly called out, a "why".
-- Length is not the enemy. If the reviewer has 12 durable rules across 4 themes, write all 12. Don't compress. But omit sections with fewer than 2 supporting signals.
+- Length is not the enemy. If the reviewer has 12 durable rules across 4 themes, write all 12. Don't compress.
 - No fluff. No preamble. No summary. Start directly with the first section.
 """
+
+
+def _tags(c: ReviewComment) -> str:
+    tags = []
+    if c.is_resolved:
+        tags.append("resolved")
+    now = datetime.now(tz=UTC)
+    days = (now - c.created_at).days
+    if days < 90:
+        tags.append("recent")
+    elif days > 730:
+        tags.append("older")
+    return f" [{', '.join(tags)}]" if tags else ""
 
 
 def synthesis_user_prompt(
@@ -38,7 +59,7 @@ def synthesis_user_prompt(
     if comments:
         lines.append(f"## Signal 1: {len(comments)} review comments @{user} left on others' PRs")
         lines.append("")
-        lines.append("Each comment is prefixed with [repo#pr] and optionally (file:line).")
+        lines.append("Each comment is prefixed with [repo#pr] and optionally (file:line). Metadata tags in brackets indicate signal strength: [resolved] = author accepted; [recent] = <90d; [older] = >2y.")
         lines.append("")
         for c in comments:
             loc = ""
@@ -47,7 +68,7 @@ def synthesis_user_prompt(
                 if c.line:
                     loc += f":{c.line}"
                 loc += ")"
-            lines.append(f"[{c.repo}#{c.pr_number}]{loc}")
+            lines.append(f"[{c.repo}#{c.pr_number}]{loc}{_tags(c)}")
             lines.append(c.body.strip())
             lines.append("")
 
