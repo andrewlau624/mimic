@@ -15,21 +15,24 @@ mimic rm     <user>   delete one
 ```
 
 ```
-$ mimic learn andrewlau624 --repo pacific-ai-team/pacific-server --repo pacific-ai-team/pacific-gateway --since 2026-01-01
-scanning pacific-ai-team/pacific-server — up to 200 PRs...
-  saved 137 review comments + 42 commits.
-scanning pacific-ai-team/pacific-gateway — up to 200 PRs...
-  saved 68 review comments + 12 commits.
-combined across 2 sources: 205 review comments + 54 commits.
+$ mimic learn charliermarsh --repo astral-sh/ruff --repo astral-sh/uv --since 2025-01-01
+scanning astral-sh/ruff — up to 200 PRs...
+  saved 214 review comments + 38 commits.
+scanning astral-sh/uv — up to 200 PRs...
+  saved 126 review comments + 17 commits.
+combined across 2 sources: 340 review comments + 55 commits.
 synthesizing...
-wrote /Users/you/.mimic/personas/andrewlau624/persona.md
+wrote /Users/you/.mimic/personas/charliermarsh/persona.md
 
-$ mimic review andrewlau624
-likely nits from @andrewlau624 (3):
-- module-level function doing business logic; refactor into a *Service class (src/spend.py:42)
-  → wrap `compute_spend_summary` in a `SpendService` and inject the repo
-- raw dict crossing the queue boundary; use a pydantic model (src/spend.py:88)
-- missing test for the exception branch in `refresh_spend` (src/spend_test.py:0)
+$ mimic review charliermarsh
+likely nits from @charliermarsh (4):
+- new dependency added without an entry in the "why we need it" note — prefer stdlib or an existing dep (pyproject.toml:34)
+  → drop the `pendulum` dep; the two datetime ops here work with stdlib `datetime` + `zoneinfo`
+- `Any` on a public function return type; widen only when the shape is genuinely open (src/cli/resolver.py:88)
+  → return `ResolvedTarget | None` — the only two shapes callers actually get
+- test doesn't cover the error branch of `parse_manifest` (tests/test_manifest.py)
+  → add a `test_parse_manifest_raises_on_missing_field` fixture with a minimal invalid manifest
+- long-form `--verbose` without a short `-v` alias; every other flag has both (src/cli/args.py:112)
 ```
 
 ## Install
