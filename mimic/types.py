@@ -41,6 +41,8 @@ class ReviewComment(BaseModel):
     created_at: datetime
     url: str
     is_resolved: bool = False
+    is_outdated: bool = False
+    thread_id: str | None = None
 
 
 class CommitFile(BaseModel):

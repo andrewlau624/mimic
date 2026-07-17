@@ -1,6 +1,6 @@
 [project]
 name = "mimic-cli"
-version = "0.1.0"
+version = "0.6.1"
 description = "Scrape a GitHub reviewer's PR comments into a persona doc you can point at your diff."
 readme = "README.md"
 license = { file = "LICENSE" }

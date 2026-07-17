@@ -6,6 +6,10 @@ SYNTHESIS_SYSTEM = """You distill a code REVIEWER's style into a durable, cite-h
 
 The signals span PR review comments (the primary signal — what they flag when reviewing others' code) and, when available, commits they authored (secondary — how they write their own code). Signals may span MULTIPLE source repos; when they do, prefer patterns that repeat across repos.
 
+Do this in TWO PASSES:
+1. First pass (internal — don't emit yet): read every signal and CLUSTER them into themes. Comments saying the same thing in different words become one cluster. Aim for ~10-20 clusters across the whole set. Discard clusters supported by fewer than 2 comments from DIFFERENT PRs.
+2. Second pass (emit): write the persona from your clusters. One imperative rule per cluster. Cite 2-3 representative quotes (prefer different PRs, prefer `[acted-on]` and `[recent]` tags).
+
 Output structure:
 1. Optional opening `## Overall` — 2-3 sentences describing their default review posture (what they push back on, what they optimize for).
 2. Themed H2 sections describing WHAT they flag. Use any that fit the signal: `## Architecture`, `## Style`, `## Naming`, `## Types`, `## Testing`, `## Error handling`, `## Security`, `## Performance`, `## API design`, `## Commit messages`, `## Docs`. Don't force sections that aren't in the signal. Do NOT include a `## Tone` section — how they phrase reviews is out of scope; only what they flag matters.
@@ -22,20 +26,22 @@ Scope — capture EVERY durable rule the reviewer applies repeatedly:
   - **Sign-off / approval / merge-nudge comments** ("LGTM", "merge when ready").
 - If a comment articulates a rule that would apply to a completely unrelated future PR, KEEP it. If it only makes sense for the specific diff at hand, SKIP.
 
-Weight signal strength (each comment is tagged in brackets):
-- `[resolved]` — the review thread was resolved. The author accepted the nit and shipped it. STRONGER signal than unresolved.
+Weight signal strength (each thread is tagged in brackets):
+- `[acted-on]` — the code the comment referenced was modified after the comment. STRONGEST signal — the author actually changed the code in response.
+- `[resolved]` — the thread was manually resolved. Weaker than acted-on (someone clicked a button); still positive.
 - `[recent]` — comment is less than 90 days old. Reflects current priorities. Weight higher.
 - `[older]` — comment is more than 2 years old. May reflect outdated positions. Include only if reinforced by recent signals.
 
+Threads:
+- If a thread has multiple messages from the reviewer (an `initial:` line followed by one or more `→ later:` lines), the LAST message is their landing position. If the reviewer reversed themselves ("actually your approach is fine"), respect the reversal — do NOT extract the initial position as a rule.
+
 Grouping and deduplication:
-- Many comments say the same thing in different words. GROUP similar comments into one rule.
-- One rule can be backed by 10+ similar comments. Cite 2-3 representative quotes, not all 10.
 - REQUIRE at least 2 supporting comments from DIFFERENT PRs. Two comments on the same PR count as ONE signal — a rant on a single PR is not a durable pattern.
 - Prefer citing quotes that come from DIFFERENT PRs (shows the pattern isn't tied to one PR's context).
 - If a rule holds across multiple repos, cite one example from each repo when possible.
 
 Rules for the rules:
-- Focus on conventions the reviewer applies REPEATEDLY. Prefer patterns supported by MULTIPLE comments across MULTIPLE PRs, weighted by `[resolved]` and `[recent]` tags.
+- Focus on conventions the reviewer applies REPEATEDLY. Prefer patterns supported by MULTIPLE comments across MULTIPLE PRs, weighted by `[acted-on]`, `[resolved]`, and `[recent]` tags.
 - Write imperatively: "Prefer X over Y", "Use enums for closed sets", "Test the exception branch".
 - Cite 2-3 concrete examples per rule — a real quote from a comment, a filename, a commit subject. Include the source: `(pacific-server#4379)` or `(acme/api@abc123)`.
 - Include short context after the rule when it aids understanding — a code snippet, an anti-pattern they explicitly called out, a "why".
@@ -46,6 +52,8 @@ Rules for the rules:
 
 def _tags(c: ReviewComment) -> str:
     tags = []
+    if c.is_outdated:
+        tags.append("acted-on")
     if c.is_resolved:
         tags.append("resolved")
     now = datetime.now(tz=UTC)
@@ -70,17 +78,34 @@ def synthesis_user_prompt(
     if comments:
         lines.append(f"## Signal 1: {len(comments)} review comments @{user} left on others' PRs")
         lines.append("")
-        lines.append("Each comment is prefixed with [repo#pr] and optionally (file:line). Metadata tags in brackets indicate signal strength: [resolved] = author accepted; [recent] = <90d; [older] = >2y.")
+        lines.append("Comments are grouped by thread. Metadata tags: [acted-on] = code was modified after; [resolved] = manually resolved; [recent] = <90d; [older] = >2y. In multi-message threads, the LAST message is the reviewer's landing position.")
         lines.append("")
-        for c in comments:
+
+        # Group comments by (repo, pr, thread_id) so multi-message threads render as one entry
+        threads: dict[tuple[str, int, str], list[ReviewComment]] = {}
+        for i, c in enumerate(comments):
+            key = (c.repo, c.pr_number, c.thread_id or f"__solo_{i}")
+            threads.setdefault(key, []).append(c)
+
+        for key in threads:
+            threads[key].sort(key=lambda c: c.created_at)
+
+        for thread_comments in threads.values():
+            first = thread_comments[0]
+            last = thread_comments[-1]
             loc = ""
-            if c.path:
-                loc = f" ({c.path}"
-                if c.line:
-                    loc += f":{c.line}"
+            if first.path:
+                loc = f" ({first.path}"
+                if first.line:
+                    loc += f":{first.line}"
                 loc += ")"
-            lines.append(f"[{c.repo}#{c.pr_number}]{loc}{_tags(c)}")
-            lines.append(c.body.strip())
+            lines.append(f"[{first.repo}#{first.pr_number}]{loc}{_tags(last)}")
+            if len(thread_comments) == 1:
+                lines.append(thread_comments[0].body.strip())
+            else:
+                for i, c in enumerate(thread_comments):
+                    prefix = "initial: " if i == 0 else f"→ later ({i}): "
+                    lines.append(prefix + c.body.strip())
             lines.append("")
 
     if commits:
