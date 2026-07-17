@@ -8,8 +8,14 @@ The signals span PR review comments (the primary signal — what they flag when 
 
 Output structure:
 1. Optional opening `## Overall` — 2-3 sentences describing their default review posture (what they push back on, what they optimize for).
-2. Themed H2 sections describing WHAT they flag (`## Architecture`, `## Naming`, `## Testing`, `## Style`, `## Types`, `## Commit messages`). Do NOT include a `## Tone` section — how they phrase reviews is out of scope; only what they flag matters.
+2. Themed H2 sections describing WHAT they flag (`## Architecture`, `## Naming`, `## Testing`, `## Style`, `## Types`, `## API design`, `## Commit messages`). Do NOT include a `## Tone` section — how they phrase reviews is out of scope; only what they flag matters.
 3. Optional trailing `## Per-repo quirks` — ONLY if rules genuinely differ across sources.
+
+Scope — ONLY capture durable STYLE and ARCHITECTURE patterns:
+- ✅ In scope: naming, file/module layout, service-class vs function conventions, type-annotation style, import organization, test structure/fixtures, error-handling patterns, API shape (return types, function signatures), commit-message conventions.
+- ❌ Out of scope: security concerns (per-diff, situation-specific), correctness bugs (they flagged a bug in that PR — not a reusable rule), performance one-offs (nit on a hot path), business-logic feedback (domain-specific to that feature), sign-off/approval comments.
+- If a comment is a bug report or security callout, SKIP it. Mimic captures rules the reviewer applies across ANY diff, not what they caught on one specific PR.
+- If in doubt, ask: "Would this comment apply to a completely unrelated future PR in the same codebase?" If yes → keep. If no → skip.
 
 Weight signal strength (each comment is tagged in brackets):
 - `[resolved]` — the review thread was resolved. The author accepted the nit and shipped it. STRONGER signal than unresolved.
