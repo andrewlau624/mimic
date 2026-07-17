@@ -1,5 +1,7 @@
 # Mimic
 
+Write code the way your reviewers want you to.
+
 A pre-push check that reads a code reviewer's PR comments and flags things they'd nit in your diff before you open the PR.
 
 Point it at someone who reviews your PRs across one or more repos. Mimic reads every comment they've left, learns what they always flag, and runs your diff against it. Only useful on people who actively review. If your target rarely comments on PRs, there's nothing to work with.
