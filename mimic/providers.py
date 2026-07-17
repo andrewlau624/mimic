@@ -1,4 +1,8 @@
 import os
+import shutil
+import subprocess
+import tempfile
+from pathlib import Path
 from typing import Protocol
 
 import httpx
@@ -91,6 +95,89 @@ class OllamaProvider:
         return r.json().get("message", {}).get("content", "")
 
 
+class ClaudeCliProvider:
+    """Shells out to `claude -p`; uses local Claude Code auth."""
+
+    name = ProviderKind.CLAUDE
+
+    def __init__(self, model: str):
+        binary = shutil.which("claude")
+        if not binary:
+            raise RuntimeError(
+                "the `claude` CLI is not on PATH. install Claude Code, or use --provider anthropic."
+            )
+        self._binary = binary
+        self.model = model
+
+    def complete(self, system: str, user: str) -> str:
+        cmd = [
+            self._binary,
+            "-p",
+            "--output-format", "text",
+            "--system-prompt", system,
+            "--model", self.model,
+            "--no-session-persistence",
+        ]
+        result = subprocess.run(
+            cmd,
+            input=user,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"claude -p failed (exit {result.returncode}): {result.stderr.strip() or result.stdout.strip()}"
+            )
+        return result.stdout
+
+
+class CodexCliProvider:
+    """Shells out to `codex exec`; uses local Codex auth."""
+
+    name = ProviderKind.CODEX
+
+    def __init__(self, model: str):
+        binary = shutil.which("codex")
+        if not binary:
+            raise RuntimeError(
+                "the `codex` CLI is not on PATH. install Codex, or use --provider openai."
+            )
+        self._binary = binary
+        self.model = model
+
+    def complete(self, system: str, user: str) -> str:
+        prompt = f"{system}\n\n---\n\n{user}"
+        with tempfile.NamedTemporaryFile(mode="w+", suffix=".txt", delete=False) as tmp:
+            out_path = Path(tmp.name)
+        try:
+            cmd = [
+                self._binary,
+                "exec",
+                "--model", self.model,
+                "--skip-git-repo-check",
+                "--sandbox", "read-only",
+                "--ephemeral",
+                "--color", "never",
+                "--output-last-message", str(out_path),
+                "-",
+            ]
+            result = subprocess.run(
+                cmd,
+                input=prompt,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if result.returncode != 0:
+                raise RuntimeError(
+                    f"codex exec failed (exit {result.returncode}): {result.stderr.strip() or result.stdout.strip()}"
+                )
+            return out_path.read_text(encoding="utf-8")
+        finally:
+            out_path.unlink(missing_ok=True)
+
+
 def build(config: Config) -> Provider:
     match config.provider:
         case ProviderKind.ANTHROPIC:
@@ -99,5 +186,9 @@ def build(config: Config) -> Provider:
             return OpenAIProvider(config.model)
         case ProviderKind.OLLAMA:
             return OllamaProvider(config.model, config.ollama_base_url)
+        case ProviderKind.CLAUDE:
+            return ClaudeCliProvider(config.model)
+        case ProviderKind.CODEX:
+            return CodexCliProvider(config.model)
         case _:
             raise NotImplementedError(f"unknown provider: {config.provider}")

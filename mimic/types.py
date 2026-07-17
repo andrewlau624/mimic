@@ -8,6 +8,8 @@ class ProviderKind(StrEnum):
     ANTHROPIC = "anthropic"
     OPENAI = "openai"
     OLLAMA = "ollama"
+    CLAUDE = "claude"
+    CODEX = "codex"
 
 
 class ChunkMode(StrEnum):

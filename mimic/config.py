@@ -10,6 +10,8 @@ DEFAULT_MODEL_BY_PROVIDER = {
     ProviderKind.ANTHROPIC: "claude-sonnet-4-6",
     ProviderKind.OPENAI: "gpt-4o",
     ProviderKind.OLLAMA: "llama3.1",
+    ProviderKind.CLAUDE: "sonnet",
+    ProviderKind.CODEX: "gpt-5-codex",
 }
 
 
